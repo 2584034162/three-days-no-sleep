@@ -14,28 +14,19 @@ admin - 管理员工具
 
 ## 项目结构
 
-├── worker/          ← 后端 Worker 代码（Backend）
-│   └── worker.txt   ← Cloudflare Worker 源码，部署时复制粘贴到 Worker 编辑器
-├── web/             ← 前端主站（Frontend）
-│   ├── index.html
-│   ├── sw.js
-│   ├── manifest.json
-│   ├── css/
-│   ├── js/
-│   ├── assets/
-│   ├── presets/
-│   └── functions/
-│       └── api/
-│           └── auth.js   ← 前端反代文件，需要填入你的 Worker 地址
-├── admin/           ← 管理员控制台（Admin Panel）
-│   ├── index.html
-│   ├── sw.js
-│   ├── manifest.json
-│   └── functions/
-│       └── api/
-│           └── admin.js  ← 管理员反代文件，需要填入你的 Worker 地址
-├── LICENSE
-└── README.md
+本仓库包含三个文件夹：
+
+**worker/** — 后端代码
+- worker.txt：Cloudflare Worker 源码，部署时复制粘贴到 Worker 在线编辑器
+
+**web/** — 前端主站
+- index.html、sw.js、manifest.json：主页面文件
+- css/、js/、assets/、presets/：样式、脚本、资源文件
+- functions/api/auth.js：前端反代文件，需要填入你的 Worker 地址
+
+**admin/** — 管理员控制台
+- index.html、sw.js、manifest.json：管理页面文件
+- functions/api/admin.js：管理员反代文件，需要填入你的 Worker 地址
 
 ## 部署教程
 
