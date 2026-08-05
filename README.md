@@ -62,7 +62,7 @@ admin - 管理员工具
 3. 给 Worker 起个名字（例如 `my-auth-worker`），点 **Deploy**
 4. 部署完成后，点 **Edit code**（编辑代码）
 5. **删掉编辑器里的默认代码**
-6. 打开本仓库 `worker/worker.txt` 文件，**复制全部内容**
+6. 打开本仓库 `3daysnosleep/worker/worker.txt` 文件，**复制全部内容**
 7. **粘贴到 Worker 编辑器里**
 8. 点右上角 **Deploy** 保存
 
@@ -108,7 +108,7 @@ https://my-auth-worker.你的账号.workers.dev
 
 #### 主站反代
 
-打开 `web/functions/api/auth.js`，找到第一行：
+打开 `3daysnosleep/web/functions/api/auth.js`，找到第一行：
 
 ```js
 const AUTH_WORKER_URL = '你的worker地址放这里';
@@ -122,7 +122,7 @@ const AUTH_WORKER_URL = 'https://my-auth-worker.你的账号.workers.dev/api/aut
 
 #### 管理员工具反代
 
-打开 `admin/functions/api/admin.js`，找到第一行：
+打开 `3daysnosleep/admin/functions/api/admin.js`，找到第一行：
 
 ```js
 const ADMIN_WORKER_URL = '放你自己worker的地方';
