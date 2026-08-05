@@ -1,0 +1,2254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>管理控制台</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#f1eff7">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0a0a0f;color:#e8e6e3;min-height:100vh;padding:18px}
+.wrap{max-width:960px;margin:0 auto}
+.card{background:#12121a;border:1px solid #2a2a3a;border-radius:18px;padding:18px;margin-bottom:14px}
+h1{font-size:19px;text-align:center;margin:10px 0 18px}
+.section{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #222233}
+.section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.section-title{font-size:14px;font-weight:700;margin-bottom:12px;color:#9b8cc6;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.stat{background:#181823;border:1px solid #252536;border-radius:12px;padding:12px}
+.stat-num{font-size:20px;font-weight:800;color:#e8e6e3}
+.stat-label{font-size:11px;color:#77778a;margin-top:4px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+input,select{width:100%;padding:10px 12px;background:#1e1e2a;border:1px solid #2a2a3a;border-radius:10px;color:#e8e6e3;font-size:13px;outline:none}
+input:focus,select:focus{border-color:#7c6f9b}
+button{padding:10px 12px;border-radius:10px;border:none;background:#7c6f9b;color:#fff;font-size:13px;font-weight:700;cursor:pointer}
+button.full{width:100%}
+button.small{padding:6px 9px;font-size:11px;border-radius:8px}
+button.secondary{background:#1e1e2a;border:1px solid #2a2a3a;color:#b5b2c7}
+button.danger{background:#7d343f}
+button.warn{background:#8a6930}
+button.good{background:#3d7455}
+button:active{opacity:.82}
+.result{margin-top:10px;padding:12px;background:#1a1a25;border:1px solid #222233;border-radius:12px;font-size:12px;line-height:1.7;max-height:420px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.admin-loading{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:22px 12px;
+  color:#7c6f9b;
+  font-size:12px;
+}
+.admin-loading::before{
+  content:"";
+  width:14px;
+  height:14px;
+  border-radius:50%;
+  border:2px solid rgba(124,111,155,0.25);
+  border-top-color:#7c6f9b;
+  animation:adminSpin .8s linear infinite;
+}
+@keyframes adminSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.error{color:#d26a6a}
+.success{color:#71b58c}
+.admin-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);background:#1e1e2a;border:1px solid #2a2a3a;color:#e8e6e3;padding:9px 16px;border-radius:999px;font-size:12px;z-index:9999;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;box-shadow:0 8px 28px rgba(0,0,0,.32)}
+.admin-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.muted{color:#747486;font-size:11px;line-height:1.5}
+.tabs{display:flex;gap:8px;margin-bottom:14px;overflow-x:auto}
+.tab{flex:0 0 auto;background:#171721;border:1px solid #29293a;color:#aaa;padding:9px 12px;border-radius:999px;font-size:12px}
+.tab.active{background:#7c6f9b;color:#fff;border-color:#7c6f9b}
+.panel{display:none}
+.panel.active{display:block}
+.list-tools{display:flex;gap:8px;margin-bottom:10px}
+.list-tools input,.list-tools select{margin:0}
+.item{border:1px solid #272739;background:#171721;border-radius:12px;margin-bottom:8px;overflow:hidden}
+.item-head{padding:11px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer}
+.item-title{font-weight:800;font-size:13px;color:#e8e6e3;word-break:break-all}
+.item-meta{font-size:11px;color:#77778a;text-align:right;line-height:1.5;flex-shrink:0}
+.item-body{display:none;border-top:1px solid #242436;padding:12px;background:#13131c}
+.item.open .item-body{display:block}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:700}
+.badge-unused{background:rgba(92,160,124,.15);color:#71b58c}
+.badge-used{background:rgba(196,92,92,.15);color:#d26a6a}
+.badge-disabled{background:rgba(196,92,92,.18);color:#e07b7b}
+.badge-normal{background:rgba(92,160,124,.14);color:#71b58c}
+.device{background:#191925;border:1px solid #29293a;border-radius:10px;padding:10px;margin-top:8px}
+.device-title{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#9b8cc6;font-weight:700}
+.device-time{font-size:10px;color:#77778a;flex-shrink:0}
+.device-note,.device-id{font-size:10px;color:#6f6f80;margin-top:5px;word-break:break-all;line-height:1.45}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.actions button{width:auto}
+.code-text{font-family:ui-monospace,Menlo,Consolas,monospace;color:#9b8cc6;font-weight:800;letter-spacing:.5px}
+.date-report{display:grid;grid-template-columns:repeat(3,1fr) auto;gap:8px}
+@media(max-width:720px){
+  body{padding:12px}
+  .grid{grid-template-columns:repeat(2,1fr)}
+  .row,.list-tools,.date-report{display:flex;flex-direction:column}
+  .item-head{align-items:flex-start}
+  .item-meta{text-align:left}
+}
+
+/* ===== 月白雾紫毛玻璃管理后台 ===== */
+body{
+  background:#f1eff7;
+  color:#34313d;
+}
+
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background:rgba(255,255,255,0.18);
+  z-index:-1;
+}
+
+.card{
+  background:rgba(252,251,255,0.66);
+  border:1px solid rgba(255,255,255,0.82);
+  backdrop-filter:blur(24px) saturate(1.35);
+  -webkit-backdrop-filter:blur(24px) saturate(1.35);
+  box-shadow:0 18px 44px rgba(116,104,148,0.13), inset 0 1px 0 rgba(255,255,255,0.72);
+}
+
+h1{
+  color:#34313d;
+  letter-spacing:.5px;
+}
+
+.section{
+  border-bottom-color:rgba(137,126,178,0.16);
+}
+
+.section-title{
+  color:#7c6f9b;
+}
+
+.stat,
+.item,
+.device,
+.result{
+  background:rgba(247,245,252,0.66);
+  border-color:rgba(255,255,255,0.72);
+  color:#34313d;
+  backdrop-filter:blur(18px) saturate(1.25);
+  -webkit-backdrop-filter:blur(18px) saturate(1.25);
+  box-shadow:0 7px 18px rgba(116,104,148,0.08), inset 0 1px 0 rgba(255,255,255,0.58);
+}
+
+.item-body{
+  background:rgba(252,251,255,0.45);
+  border-top-color:rgba(137,126,178,0.16);
+}
+
+input,
+select{
+  background:rgba(247,245,252,0.72);
+  border-color:rgba(255,255,255,0.78);
+  color:#34313d;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.58);
+}
+
+input::placeholder{
+  color:rgba(70,68,82,0.42);
+}
+
+button{
+  background:#8a7eb2;
+  box-shadow:0 8px 20px rgba(124,111,155,0.16);
+}
+
+button.secondary{
+  background:rgba(247,245,252,0.66);
+  border-color:rgba(137,126,178,0.24);
+  color:#6f638f;
+}
+
+button.warn{
+  background:#b49158;
+}
+
+button.danger{
+  background:#a95864;
+}
+
+button.good{
+  background:#679a7b;
+}
+
+.tab{
+  background:rgba(247,245,252,0.62);
+  border-color:rgba(255,255,255,0.72);
+  color:#706a7e;
+}
+
+.tab.active{
+  background:#8a7eb2;
+  color:#fff;
+  border-color:rgba(255,255,255,0.62);
+}
+
+.stat-num,
+.item-title,
+.moment-name{
+  color:#34313d;
+}
+
+.stat-label,
+.item-meta,
+.muted,
+.device-note,
+.device-id,
+.device-time{
+  color:rgba(70,68,82,0.56);
+}
+
+.code-text,
+.device-title{
+  color:#7c6f9b;
+}
+
+.admin-toast{
+  background:rgba(252,251,255,0.82);
+  border-color:rgba(255,255,255,0.86);
+  color:#34313d;
+  backdrop-filter:blur(18px) saturate(1.25);
+  -webkit-backdrop-filter:blur(18px) saturate(1.25);
+}
+
+.admin-modal-mask{
+  position:fixed;
+  inset:0;
+  z-index:9998;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background:rgba(35,31,48,0.28);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+}
+
+.admin-modal-mask.active{
+  display:flex;
+}
+
+.admin-modal{
+  width:100%;
+  max-width:380px;
+  background:rgba(252,251,255,0.84);
+  border:1px solid rgba(255,255,255,0.88);
+  border-radius:20px;
+  padding:18px;
+  box-shadow:0 22px 60px rgba(116,104,148,0.22), inset 0 1px 0 rgba(255,255,255,0.72);
+  backdrop-filter:blur(26px) saturate(1.35);
+  -webkit-backdrop-filter:blur(26px) saturate(1.35);
+  animation:adminModalIn .22s ease;
+}
+
+@keyframes adminModalIn{
+  from{opacity:0;transform:scale(.94) translateY(8px)}
+  to{opacity:1;transform:scale(1) translateY(0)}
+}
+
+.admin-modal-title{
+  font-size:16px;
+  font-weight:800;
+  color:#34313d;
+  margin-bottom:6px;
+}
+
+.admin-modal-desc{
+  font-size:12px;
+  color:rgba(70,68,82,0.62);
+  line-height:1.7;
+  margin-bottom:14px;
+}
+
+.admin-modal-field{
+  margin-bottom:10px;
+}
+
+.admin-modal-label{
+  font-size:12px;
+  color:#7c6f9b;
+  font-weight:700;
+  margin-bottom:6px;
+}
+
+.admin-password-wrap{
+  position:relative;
+}
+
+.admin-password-wrap input{
+  padding-right:44px;
+}
+
+.admin-eye-btn{
+  position:absolute;
+  right:8px;
+  top:50%;
+  transform:translateY(-50%);
+  width:32px;
+  height:32px;
+  border:none;
+  background:transparent;
+  box-shadow:none;
+  color:rgba(70,68,82,0.58);
+  padding:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+}
+
+.admin-eye-btn svg{
+  width:18px;
+  height:18px;
+  display:block;
+}
+
+.admin-eye-btn:active{
+  opacity:.65;
+}
+
+.admin-modal-error{
+  min-height:18px;
+  font-size:12px;
+  color:#a95864;
+  line-height:1.5;
+  margin:6px 0 10px;
+}
+
+.admin-modal-actions{
+  display:flex;
+  gap:8px;
+}
+
+.admin-modal-actions button{
+  flex:1;
+}
+
+/* 用户设备列表放大一点，方便点按 */
+.item-head{
+  padding:15px 16px;
+}
+
+.item-title{
+  font-size:15px;
+}
+
+.item-meta{
+  font-size:12px;
+}
+
+.item-body{
+  padding:15px;
+}
+
+.device{
+  padding:13px;
+  margin-top:10px;
+}
+
+.device-title{
+  font-size:13px;
+}
+
+.device-note,
+.device-id{
+  font-size:11px;
+}
+
+.actions button.small{
+  padding:8px 11px;
+  font-size:12px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>❤️‍🔥 管理控制台</h1>
+
+  <div class="card" id="adminLoginSection">
+    <form id="adminLoginForm" autocomplete="on" onsubmit="adminLogin();return false;">
+      <div class="section-title">管理员登录</div>
+
+      <input
+        id="adminUser"
+        name="username"
+        type="text"
+        value="admin"
+        autocomplete="username"
+        style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0"
+        tabindex="-1"
+      >
+
+      <input
+        id="adminPwd"
+        name="password"
+        type="password"
+        placeholder="管理密码"
+        autocomplete="current-password"
+      >
+
+      <div style="height:8px"></div>
+      <button class="full" id="adminLoginBtn" type="submit">登录</button>
+      <div id="adminLoginError" class="error" style="font-size:12px;margin-top:8px;min-height:18px"></div>
+    </form>
+  </div>
+
+  <div id="adminPanel" style="display:none">
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" onclick="showTab('dashboard',this)">概览</button>
+        <button class="tab" onclick="showTab('codes',this)">激活码</button>
+        <button class="tab" onclick="showTab('overview',this)">用户总览</button>
+        <button class="tab" onclick="showTab('users',this)">用户设备</button>
+        <button class="tab" onclick="showTab('dates',this)">日期统计</button>
+      </div>
+
+      <div id="tab-dashboard" class="panel active">
+        <div class="section-title">统计</div>
+        <div id="statsBox" class="grid"></div>
+        <div class="actions">
+          <button class="secondary" onclick="refreshAll()">刷新全部</button>
+          <button class="danger" onclick="adminLogout()">退出登录</button>
+        </div>
+      </div>
+
+      <div id="tab-codes" class="panel">
+        <div class="section">
+          <div class="section-title">生成激活码</div>
+          <div class="row">
+            <input id="codeCount" type="number" min="1" max="50" value="5" placeholder="数量（1-50）">
+            <input id="codePrefix" placeholder="前缀（选填，如 BETA）">
+            <button onclick="generateCodes()">生成</button>
+          </div>
+          <div id="genResult"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">激活码列表 <button class="small secondary" onclick="loadCodes()">刷新</button></div>
+          <div class="list-tools">
+            <input id="codeSearch" placeholder="搜索激活码 / 使用者 / QQ号" oninput="renderCodes()">
+            <select id="codeFilter" onchange="renderCodes()">
+              <option value="all">全部</option>
+              <option value="unused">未使用</option>
+              <option value="used">已使用</option>
+            </select>
+          </div>
+          <div id="codeList" class="result">加载中...</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">酒馆卡导入功能码</div>
+          <div class="row">
+            <input id="featureCodeCount" type="number" min="1" max="50" value="5" placeholder="数量（1-50）">
+            <input id="featureCodePrefix" placeholder="前缀（默认 TV）" value="TV">
+            <button onclick="generateFeatureCodes()">生成</button>
+          </div>
+          <div id="featureGenResult"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">酒馆功能码列表 <button class="small secondary" onclick="loadFeatureCodes()">刷新</button></div>
+          <div class="list-tools">
+            <input id="featureCodeSearch" placeholder="搜索功能码 / 使用者 / QQ号" oninput="renderFeatureCodes()">
+            <select id="featureCodeFilter" onchange="renderFeatureCodes()">
+              <option value="all">全部</option>
+              <option value="unused">未使用</option>
+              <option value="used">已使用</option>
+              <option value="disabled">已停用</option>
+            </select>
+          </div>
+          <div id="featureCodeList" class="result">点击刷新加载</div>
+        </div>
+
+      </div>
+
+      <div id="tab-overview" class="panel">
+        <div class="section-title">用户总览 <button class="small secondary" onclick="loadUserOverview()">刷新</button></div>
+        <div class="list-tools">
+          <input id="userOverviewSearch" placeholder="搜索用户名 / QQ号 / 注册激活码 / 酒馆功能码" oninput="renderUserOverview()">
+          <select id="userOverviewFilter" onchange="renderUserOverview()">
+            <option value="all">全部用户</option>
+            <option value="normal">正常</option>
+            <option value="disabled">已禁用</option>
+            <option value="tavernOn">已开启酒馆卡导入</option>
+            <option value="tavernOff">未开启酒馆卡导入</option>
+          </select>
+        </div>
+        <div id="userOverviewList" class="result">点击刷新加载</div>
+      </div>
+
+      <div id="tab-users" class="panel">
+        <div class="section-title">用户与已绑定登录设备 <button class="small secondary" onclick="loadUsers()">刷新</button></div>
+        <div class="list-tools">
+          <input id="userSearch" placeholder="搜索用户名 / QQ号 / 注册激活码 / 酒馆功能码" oninput="renderUsers()">
+          <select id="userFilter" onchange="renderUsers()">
+            <option value="all">全部用户</option>
+            <option value="normal">正常</option>
+            <option value="disabled">已禁用</option>
+          </select>
+        </div>
+        <div id="userList" class="result">加载中...</div>
+      </div>
+
+      <div id="tab-dates" class="panel">
+        <div class="section-title">按日期查看注册 / 激活</div>
+        <div class="date-report">
+          <select id="dateYear"></select>
+          <select id="dateMonth"></select>
+          <select id="dateDay"></select>
+          <button onclick="loadDateReport()">查看</button>
+        </div>
+        <div id="dateReport" class="result">请选择日期查看</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="admin-toast" id="adminToast"></div>
+
+<div class="admin-modal-mask" id="resetPwdModal" onclick="if(event.target===this)closeResetPwdModal()">
+  <div class="admin-modal">
+    <div class="admin-modal-title">重置用户密码</div>
+    <div class="admin-modal-desc" id="resetPwdDesc">设置新密码后，会清空该用户所有登录设备。</div>
+
+    <div class="admin-modal-field">
+      <div class="admin-modal-label">新密码</div>
+      <div class="admin-password-wrap">
+        <input id="resetPwdInput1" type="password" autocomplete="new-password" placeholder="10-18位，含英文和数字">
+        <button class="admin-eye-btn" type="button" onclick="toggleAdminPasswordVisibility('resetPwdInput1',this)" aria-label="显示密码" title="显示密码">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.6A3 3 0 0012 15a3 3 0 002.4-4.4"/><path d="M9.9 4.2A10.8 10.8 0 0112 4c6.5 0 10 8 10 8a18.4 18.4 0 01-3.1 4.2"/><path d="M6.6 6.6C3.6 8.7 2 12 2 12s3.5 8 10 8a10.7 10.7 0 005.4-1.5"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="admin-modal-field">
+      <div class="admin-modal-label">确认新密码</div>
+      <div class="admin-password-wrap">
+        <input id="resetPwdInput2" type="password" autocomplete="new-password" placeholder="再次输入新密码">
+        <button class="admin-eye-btn" type="button" onclick="toggleAdminPasswordVisibility('resetPwdInput2',this)" aria-label="显示密码" title="显示密码">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.6A3 3 0 0012 15a3 3 0 002.4-4.4"/><path d="M9.9 4.2A10.8 10.8 0 0112 4c6.5 0 10 8 10 8a18.4 18.4 0 01-3.1 4.2"/><path d="M6.6 6.6C3.6 8.7 2 12 2 12s3.5 8 10 8a10.7 10.7 0 005.4-1.5"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="admin-modal-error" id="resetPwdError"></div>
+
+    <div class="admin-modal-actions">
+      <button class="secondary" type="button" onclick="closeResetPwdModal()">取消</button>
+      <button class="warn" type="button" onclick="submitResetUserPassword()">重置并清空设备</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var ADMIN_API='/api/admin';
+var adminToken=localStorage.getItem('stm_adminToken')||'';
+var currentCodes=[];
+var currentFeatureCodes=[];
+var currentUsers=[];
+var openUsers={};
+var openCodeRows={};
+var openFeatureCodeRows={};
+var openOverviewUsers={};
+var resetPwdUsername='';
+var _adminCopyBatches={};
+
+function adminSetLoading(elId,msg){
+  var el=document.getElementById(elId);
+
+  if(!el)return;
+
+  el.innerHTML='<div class="admin-loading">'+_esc(msg||'正在加载…')+'</div>';
+}
+
+function adminToast(msg){
+  var el=document.getElementById('adminToast');
+  if(!el)return;
+
+  el.textContent=msg;
+  el.classList.add('show');
+
+  clearTimeout(el._timer);
+  el._timer=setTimeout(function(){
+    el.classList.remove('show');
+  },1800);
+}
+
+function adminSetLoginStatus(msg,type){
+  var err=document.getElementById('adminLoginError');
+  if(!err)return;
+
+  err.className=type==='ok'?'success':(type==='loading'?'muted':'error');
+  err.textContent=msg||'';
+}
+
+function adminFriendlyError(e){
+  var msg=e&&e.message?String(e.message):String(e||'');
+
+  if(typeof navigator!=='undefined'&&navigator.onLine===false){
+    return '当前没有网络连接，请联网后重试';
+  }
+
+  if(msg.indexOf('Failed to fetch')>=0||msg.indexOf('NetworkError')>=0){
+    return '网络请求失败。请确认当前网络可用，并确认管理接口地址可访问';
+  }
+
+  if(msg.indexOf('Unexpected token')>=0||msg.indexOf('JSON')>=0){
+    return '服务器返回内容不是 JSON。可能是 Worker 地址填错、页面被缓存、或请求被拦截';
+  }
+
+  if(msg.indexOf('HTTP 401')>=0||msg.indexOf('HTTP 403')>=0){
+    return '管理员登录被拒绝。请检查 ADMIN_PWD 是否正确';
+  }
+
+  if(msg.indexOf('HTTP 500')>=0){
+    return 'Worker 后端报错。请打开 Cloudflare Worker 日志查看具体错误';
+  }
+
+  if(msg.indexOf('CORS')>=0||msg.indexOf('cross-origin')>=0){
+    return '跨域请求被拦截。请检查 Worker CORS 设置';
+  }
+
+  return msg||'未知错误';
+}
+
+function _esc(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function _adminJsStr(s){
+  return String(s == null ? '' : s)
+    .replace(/\\/g,'\\\\')
+    .replace(/'/g,"\\'")
+    .replace(/\r/g,'\\r')
+    .replace(/\n/g,'\\n');
+}
+
+function copyAdminText(text,msg){
+  text = String(text || '');
+
+  if(!text){
+    adminToast('没有可复制内容');
+    return;
+  }
+
+  function fallbackCopy(){
+    var ta=document.createElement('textarea');
+    ta.value=text;
+    ta.style.cssText='position:fixed;left:-9999px;top:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+
+    try{
+      document.execCommand('copy');
+      adminToast(msg || '已复制');
+    }catch(e){
+      adminToast('复制失败，请手动选择复制');
+    }
+
+    document.body.removeChild(ta);
+  }
+
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      adminToast(msg || '已复制');
+    }).catch(function(){
+      fallbackCopy();
+    });
+  }else{
+    fallbackCopy();
+  }
+}
+
+function copyAdminCode(code){
+  code = String(code || '').trim();
+
+  if(!code){
+    adminToast('没有可复制内容');
+    return;
+  }
+
+  copyAdminText(code,'已复制：'+code);
+}
+
+function copyAdminBatch(batchId){
+  var text = _adminCopyBatches[batchId] || '';
+
+  copyAdminText(text,'已复制全部激活码');
+}
+
+function renderAdminGeneratedCodes(title,codes){
+  codes = Array.isArray(codes) ? codes : [];
+
+  var batchId = 'batch_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  var text = codes.map(function(c){
+    return String(c || '').trim();
+  }).filter(Boolean).join('\n');
+
+  _adminCopyBatches[batchId] = text;
+
+  var html = '';
+
+  html += '<div class="result success">';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">';
+  html += '<div style="font-weight:800">'+_esc(title)+'：'+codes.length+' 个</div>';
+  html += '<button class="small secondary" onclick="copyAdminBatch(\''+batchId+'\')">复制全部</button>';
+  html += '</div>';
+
+  html += '<div style="display:flex;flex-direction:column;gap:6px">';
+
+  codes.forEach(function(code){
+    code = String(code || '').trim();
+
+    if(!code)return;
+
+    html += '<div onclick="copyAdminCode(\''+_adminJsStr(code)+'\')" title="点击复制" style="cursor:pointer;padding:8px 10px;border-radius:10px;background:rgba(124,111,155,0.08);border:1px solid rgba(124,111,155,0.18);display:flex;align-items:center;justify-content:space-between;gap:8px">';
+    html += '<span class="code-text">'+_esc(code)+'</span>';
+    html += '<span style="font-size:10px;color:rgba(70,68,82,0.56);flex-shrink:0">点击复制</span>';
+    html += '</div>';
+  });
+
+  html += '</div>';
+  html += '</div>';
+
+  return html;
+}
+
+function _time(ts){
+  if(!ts)return '未知';
+  try{return new Date(Number(ts)).toLocaleString('zh-CN')}catch(e){return '未知'}
+}
+
+function _dayStartEnd(){
+  var y=Number(document.getElementById('dateYear').value);
+  var m=Number(document.getElementById('dateMonth').value)-1;
+  var d=Number(document.getElementById('dateDay').value);
+  var start=new Date(y,m,d,0,0,0,0).getTime();
+  var end=new Date(y,m,d+1,0,0,0,0).getTime();
+  return {start:start,end:end};
+}
+
+function _todayRange(){
+  var n=new Date();
+  var start=new Date(n.getFullYear(),n.getMonth(),n.getDate(),0,0,0,0).getTime();
+  var end=new Date(n.getFullYear(),n.getMonth(),n.getDate()+1,0,0,0,0).getTime();
+  return {start:start,end:end};
+}
+
+function _shortId(id){
+  id=String(id||'');
+  if(!id)return '无deviceId';
+  if(id.length<=22)return id;
+  return id.slice(0,12)+'…'+id.slice(-6);
+}
+
+function _isValidAdminNewPassword(v){
+  v = String(v || '');
+
+  if(v.length < 10 || v.length > 18)return false;
+  if(/\s/.test(v))return false;
+  if(!/[A-Za-z]/.test(v))return false;
+  if(!/[0-9]/.test(v))return false;
+
+  return true;
+}
+
+function _adminEyeSvg(show){
+  if(show){
+    return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  }
+
+  return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 10.6A3 3 0 0012 15a3 3 0 002.4-4.4"/><path d="M9.9 4.2A10.8 10.8 0 0112 4c6.5 0 10 8 10 8a18.4 18.4 0 01-3.1 4.2"/><path d="M6.6 6.6C3.6 8.7 2 12 2 12s3.5 8 10 8a10.7 10.7 0 005.4-1.5"/></svg>';
+}
+
+function toggleAdminPasswordVisibility(inputId,btn){
+  var input=document.getElementById(inputId);
+  if(!input)return;
+
+  var show=input.type==='password';
+  input.type=show?'text':'password';
+
+  if(btn){
+    btn.innerHTML=_adminEyeSvg(show);
+    btn.setAttribute('aria-label',show?'隐藏密码':'显示密码');
+    btn.setAttribute('title',show?'隐藏密码':'显示密码');
+  }
+}
+
+var adminAutoRefreshTimer=null;
+var adminAutoRefreshIntervalMs=14400000;
+
+function _adminPanelVisible(){
+  var panel=document.getElementById('adminPanel');
+  return !!(panel && panel.style.display !== 'none' && adminToken);
+}
+
+function _adminActiveTabName(){
+  var active=document.querySelector('.panel.active');
+  if(!active || !active.id)return 'dashboard';
+  return active.id.replace(/^tab-/,'');
+}
+
+function adminRefreshActiveData(){
+  if(!_adminPanelVisible())return;
+  if(document.visibilityState && document.visibilityState !== 'visible')return;
+
+  var tab=_adminActiveTabName();
+
+  loadStats();
+
+  if(tab==='codes'){
+    loadCodes();
+    loadFeatureCodes();
+    loadUsers();
+  }else if(tab==='overview'){
+    loadUserOverview();
+  }else if(tab==='users'){
+    loadUsers();
+  }else if(tab==='dates'){
+    loadDateReport();
+  }
+}
+
+function startAdminAutoRefresh(){
+  // 管理后台自动刷新已关闭。
+  // 只有你手动点击刷新、切换Tab、执行管理操作时才请求后端。
+  stopAdminAutoRefresh();
+}
+
+function stopAdminAutoRefresh(){
+  if(adminAutoRefreshTimer){
+    clearInterval(adminAutoRefreshTimer);
+    adminAutoRefreshTimer=null;
+  }
+}
+
+function _adminRefreshUsersInBackground(){
+  setTimeout(function(){
+    loadUsers();
+    loadStats();
+  },300);
+}
+
+function _adminRefreshCodesInBackground(){
+  setTimeout(function(){
+    loadCodes();
+    loadStats();
+  },300);
+}
+
+// 管理后台不再在切回页面 / 窗口聚焦时自动刷新。
+// 避免不操作后台时也消耗请求次数。
+// 需要数据时请手动点“刷新”，或切换对应Tab加载。
+
+function _post(action,data){
+  data=data||{};
+  data.action=action;
+  if(action!=='login')data.token=adminToken;
+
+  return fetch(ADMIN_API,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data)
+  }).then(function(r){
+    return r.text().then(function(txt){
+      var d=null;
+
+      try{
+        d=txt?JSON.parse(txt):{};
+      }catch(e){
+        throw new Error('服务器返回非JSON内容：'+txt.slice(0,120));
+      }
+
+      if(!r.ok){
+        throw new Error(d.error||('HTTP '+r.status));
+      }
+
+      return d;
+    });
+  }).then(function(d){
+    if(!d.ok && /未登录|过期/.test(String(d.error||''))){
+      localStorage.removeItem('stm_adminToken');
+      adminToken='';
+      stopAdminAutoRefresh();
+      document.getElementById('adminPanel').style.display='none';
+      document.getElementById('adminLoginSection').style.display='block';
+    }
+    return d;
+  });
+}
+
+function showTab(name,btn){
+  document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active')});
+  document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('active')});
+  btn.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+
+  if(name==='dashboard'){
+    loadStats();
+  }else if(name==='codes'){
+    loadCodes();
+    loadFeatureCodes();
+    loadUsers();
+  }else if(name==='overview'){
+    loadUserOverview();
+  }else if(name==='users'){
+    loadUsers();
+  }else if(name==='dates'){
+    loadDateReport();
+  }
+}
+
+function adminLogin(){
+  var pwd=document.getElementById('adminPwd').value.trim();
+  var btn=document.getElementById('adminLoginBtn');
+
+  if(!pwd){
+    adminSetLoginStatus('请输入管理密码','error');
+    adminToast('请输入管理密码');
+    return;
+  }
+
+  adminToast('正在登录中…');
+  adminSetLoginStatus('正在登录中，请稍候…','loading');
+
+  if(btn){
+    btn.disabled=true;
+    btn.textContent='登录中…';
+    btn.style.opacity='0.65';
+  }
+
+  _post('login',{password:pwd}).then(function(d){
+    if(d.ok){
+      adminToken=d.token;
+      localStorage.setItem('stm_adminToken',adminToken);
+
+      adminSetLoginStatus('登录成功，正在加载管理数据…','ok');
+      adminToast('登录成功');
+
+      document.getElementById('adminLoginSection').style.display='none';
+      document.getElementById('adminPanel').style.display='block';
+
+      initDateSelects();
+      loadStats();
+      startAdminAutoRefresh();
+    }else{
+      adminSetLoginStatus(d.error||'密码错误','error');
+      adminToast(d.error||'登录失败');
+    }
+  }).catch(function(e){
+    var msg=adminFriendlyError(e);
+    adminSetLoginStatus(msg,'error');
+    adminToast('登录失败');
+    console.error('管理员登录失败：',e);
+  }).finally(function(){
+    if(btn){
+      btn.disabled=false;
+      btn.textContent='登录';
+      btn.style.opacity='';
+    }
+  });
+}
+
+function adminLogout(){
+  if(!confirm('确认退出管理后台？'))return;
+
+  localStorage.removeItem('stm_adminToken');
+  adminToken='';
+  stopAdminAutoRefresh();
+
+  document.getElementById('adminPanel').style.display='none';
+  document.getElementById('adminLoginSection').style.display='block';
+
+  adminSetLoginStatus('已退出登录','loading');
+  adminToast('已退出登录');
+
+  var pwd=document.getElementById('adminPwd');
+  if(pwd)pwd.value='';
+}
+
+function refreshAll(){
+  loadStats();
+  loadCodes();
+  loadFeatureCodes();
+  loadUsers();
+  loadDateReport();
+}
+
+function loadStats(){
+  var r=_todayRange();
+  adminSetLoading('statsBox','正在加载统计…');
+
+  _post('adminStats',{start:r.start,end:r.end}).then(function(d){
+    var el=document.getElementById('statsBox');
+
+    if(!d.ok){
+      el.innerHTML='<div class="error">'+_esc(d.error)+'</div>';
+      return;
+    }
+
+    var s=d.stats||{};
+
+    el.innerHTML=
+      '<div class="stat"><div class="stat-num">'+_esc(s.totalUsers||0)+'</div><div class="stat-label">总用户</div></div>'+
+      '<div class="stat"><div class="stat-num">'+_esc(s.disabledUsers||0)+'</div><div class="stat-label">已禁用</div></div>'+
+      '<div class="stat"><div class="stat-num">'+_esc(s.unusedCodes||0)+'</div><div class="stat-label">未使用激活码</div></div>'+
+      '<div class="stat"><div class="stat-num">'+_esc(s.usedCodes||0)+'</div><div class="stat-label">已使用激活码</div></div>'+
+      '<div class="stat"><div class="stat-num">'+_esc(s.todayRegistered||0)+'</div><div class="stat-label">今日注册</div></div>'+
+      '<div class="stat"><div class="stat-num">'+_esc(s.todayUsed||0)+'</div><div class="stat-label">今日激活</div></div>'+
+      '<div class="stat"><div class="stat-num">'+_esc(s.totalCodes||0)+'</div><div class="stat-label">激活码总数</div></div>';
+  });
+}
+
+function generateCodes(){
+  var count=parseInt(document.getElementById('codeCount').value,10)||5;
+  var prefix=document.getElementById('codePrefix').value.trim();
+
+  _post('generate',{count:count,prefix:prefix}).then(function(d){
+    var el=document.getElementById('genResult');
+
+    if(d.ok){
+      el.innerHTML=renderAdminGeneratedCodes('已生成激活码', d.codes || []);
+      loadCodes();
+      loadStats();
+    }else{
+      el.innerHTML='<div class="result error">'+_esc(d.error)+'</div>';
+    }
+  }).catch(function(){
+    document.getElementById('genResult').innerHTML='<div class="result error">网络错误</div>';
+  });
+}
+
+var _adminCodesReqSeq = 0;
+
+function loadCodes(){
+  var reqSeq = ++_adminCodesReqSeq;
+  var listEl = document.getElementById('codeList');
+
+  adminSetLoading('codeList','正在加载激活码…');
+
+  _post('listCodes').then(function(d){
+    if(reqSeq !== _adminCodesReqSeq)return;
+
+    if(!d.ok){
+      if(currentCodes && currentCodes.length > 0){
+        renderCodes();
+        adminToast(d.error || '激活码列表刷新失败，已保留现有数据');
+      }else{
+        listEl.innerHTML='<span class="error">'+_esc(d.error)+'</span>';
+      }
+      return;
+    }
+
+    currentCodes=d.codes||[];
+    renderCodes();
+  }).catch(function(){
+    if(reqSeq !== _adminCodesReqSeq)return;
+
+    if(currentCodes && currentCodes.length > 0){
+      renderCodes();
+      adminToast('激活码列表刷新失败，已保留现有数据');
+    }else{
+      listEl.innerHTML='<span class="error">网络错误</span>';
+    }
+  });
+}
+
+function toggleCodeRow(code){
+  code = String(code || '');
+
+  if(!code)return;
+
+  openCodeRows[code] = !openCodeRows[code];
+  renderCodes();
+}
+
+function toggleFeatureCodeRow(code){
+  code = String(code || '');
+
+  if(!code)return;
+
+  openFeatureCodeRows[code] = !openFeatureCodeRows[code];
+  renderFeatureCodes();
+}
+
+function toggleOverviewUser(username){
+  username = String(username || '');
+
+  if(!username)return;
+
+  openOverviewUsers[username] = !openOverviewUsers[username];
+  renderUserOverview();
+}
+
+function renderCodes(){
+  var el=document.getElementById('codeList');
+  var q=(document.getElementById('codeSearch')&&document.getElementById('codeSearch').value||'').trim().toLowerCase();
+  var filter=(document.getElementById('codeFilter')&&document.getElementById('codeFilter').value)||'all';
+
+  var list=currentCodes.filter(function(c){
+    var used=!!Number(c.used||0);
+
+    if(filter==='used'&&!used)return false;
+    if(filter==='unused'&&used)return false;
+
+    if(q){
+      var text=(
+        String(c.code||'')+' '+
+        String(c.used_by||'')+' '+
+        String(c.used_by_qq||'')
+      ).toLowerCase();
+
+      if(text.indexOf(q)<0)return false;
+    }
+
+    return true;
+  });
+
+  if(list.length===0){
+    el.innerHTML='没有符合条件的激活码';
+    return;
+  }
+
+  var html='';
+
+  list.forEach(function(c){
+    var idx=currentCodes.indexOf(c);
+    var used=!!Number(c.used||0);
+    var usedByQq = c.used_by_qq ? String(c.used_by_qq) : '';
+
+    var open = !!openCodeRows[c.code];
+
+    html+='<div class="item '+(open?'open':'')+'">';
+    html+='<div class="item-head" onclick="toggleCodeRow(\''+_esc(c.code)+'\')">';
+    html+='<div><div class="code-text" title="点击复制" onclick="event.stopPropagation();copyAdminCode(\''+_adminJsStr(c.code||'')+'\')">'+_esc(c.code)+'</div><div class="muted">创建：'+_esc(_time(c.created_at))+'</div></div>';
+    html+='<div class="item-meta">'+
+      '<span class="badge '+(used?'badge-used':'badge-unused')+'">'+(used?'已使用':'未使用')+'</span><br>'+
+      (used
+        ? '使用者：'+_esc(c.used_by||'未知')+
+          '<br>QQ：'+_esc(usedByQq || '未记录')+
+          '<br>使用：'+_esc(_time(c.used_at))
+        : '')+
+      '</div>';
+    html+='</div>';
+    html+='<div class="item-body">';
+    html+='<div class="actions"><button class="small danger" onclick="event.stopPropagation();deleteCode('+idx+')">删除激活码</button></div>';
+
+    if(used && c.used_by){
+      html+=_adminBuildUserManageBlockByUsername(c.used_by);
+    }
+
+    html+='</div>';
+    html+='</div>';
+  });
+
+  el.innerHTML=html;
+}
+
+function deleteCode(idx){
+  var c=currentCodes[idx];
+  if(!c)return;
+
+  var used=!!Number(c.used||0);
+  var msg=used
+    ? '这个激活码已被使用，删除后不会删除用户，也不会恢复名额。确认强制删除？'
+    : '确认删除这个未使用激活码？';
+
+  if(!confirm(msg+'\n\n'+c.code))return;
+
+  _post('deleteCode',{code:c.code,force:used}).then(function(d){
+    if(!d.ok){
+      alert(d.error||'删除失败');
+      return;
+    }
+
+    currentCodes=currentCodes.filter(function(x){
+      return x && x.code !== c.code;
+    });
+    renderCodes();
+    adminToast('激活码已删除');
+
+    _adminRefreshCodesInBackground();
+  }).catch(function(){
+    alert('网络错误');
+  });
+}
+
+var _adminFeatureCodesReqSeq = 0;
+
+function generateFeatureCodes(){
+  var count=parseInt(document.getElementById('featureCodeCount').value,10)||5;
+  var prefix=document.getElementById('featureCodePrefix').value.trim() || 'TV';
+
+  _post('generateFeatureCodes',{
+    count:count,
+    prefix:prefix,
+    feature:'tavern_import'
+  }).then(function(d){
+    var el=document.getElementById('featureGenResult');
+
+    if(d.ok){
+      el.innerHTML=renderAdminGeneratedCodes('已生成酒馆功能码', d.codes || []);
+      loadFeatureCodes();
+      loadUsers();
+      loadStats();
+    }else{
+      el.innerHTML='<div class="result error">'+_esc(d.error)+'</div>';
+    }
+  }).catch(function(e){
+    document.getElementById('featureGenResult').innerHTML='<div class="result error">'+_esc(adminFriendlyError(e))+'</div>';
+  });
+}
+
+function loadFeatureCodes(){
+  var reqSeq = ++_adminFeatureCodesReqSeq;
+  var listEl = document.getElementById('featureCodeList');
+
+  if(listEl){
+    adminSetLoading('featureCodeList','正在加载酒馆功能码…');
+  }
+
+  _post('listFeatureCodes',{feature:'tavern_import'}).then(function(d){
+    if(reqSeq !== _adminFeatureCodesReqSeq)return;
+
+    if(!d.ok){
+      if(currentFeatureCodes && currentFeatureCodes.length > 0){
+        renderFeatureCodes();
+        adminToast(d.error || '酒馆功能码刷新失败，已保留现有数据');
+      }else if(listEl){
+        listEl.innerHTML='<span class="error">'+_esc(d.error)+'</span>';
+      }
+      return;
+    }
+
+    currentFeatureCodes=d.codes||[];
+    renderFeatureCodes();
+  }).catch(function(e){
+    if(reqSeq !== _adminFeatureCodesReqSeq)return;
+
+    if(currentFeatureCodes && currentFeatureCodes.length > 0){
+      renderFeatureCodes();
+      adminToast('酒馆功能码刷新失败，已保留现有数据');
+    }else if(listEl){
+      listEl.innerHTML='<span class="error">'+_esc(adminFriendlyError(e))+'</span>';
+    }
+  });
+}
+
+function renderFeatureCodes(){
+  var el=document.getElementById('featureCodeList');
+  if(!el)return;
+
+  var q=(document.getElementById('featureCodeSearch')&&document.getElementById('featureCodeSearch').value||'').trim().toLowerCase();
+  var filter=(document.getElementById('featureCodeFilter')&&document.getElementById('featureCodeFilter').value)||'all';
+
+  var list=currentFeatureCodes.filter(function(c){
+    var used=!!Number(c.used||0);
+    var disabled=!!Number(c.disabled||0);
+
+    if(filter==='used'&&!used)return false;
+    if(filter==='unused'&&used)return false;
+    if(filter==='disabled'&&!disabled)return false;
+
+    if(q){
+      var text=(
+        String(c.code||'')+' '+
+        String(c.used_by||'')+' '+
+        String(c.used_by_qq||'')
+      ).toLowerCase();
+
+      if(text.indexOf(q)<0)return false;
+    }
+
+    return true;
+  });
+
+  if(list.length===0){
+    el.innerHTML='没有符合条件的酒馆功能码';
+    return;
+  }
+
+  var html='';
+
+  list.forEach(function(c){
+    var idx=currentFeatureCodes.indexOf(c);
+    var used=!!Number(c.used||0);
+    var disabled=!!Number(c.disabled||0);
+
+    var open = !!openFeatureCodeRows[c.code];
+
+    html+='<div class="item '+(open?'open':'')+'">';
+    html+='<div class="item-head" onclick="toggleFeatureCodeRow(\''+_esc(c.code)+'\')">';
+    html+='<div><div class="code-text" title="点击复制" onclick="event.stopPropagation();copyAdminCode(\''+_adminJsStr(c.code||'')+'\')">'+_esc(c.code)+'</div><div class="muted">功能：酒馆卡导入 · 创建：'+_esc(_time(c.created_at))+'</div></div>';
+    html+='<div class="item-meta">';
+    html+='<span class="badge '+(disabled?'badge-disabled':(used?'badge-used':'badge-unused'))+'">'+(disabled?'已停用':(used?'已使用':'未使用'))+'</span><br>';
+    html+=used
+      ? '使用者：'+_esc(c.used_by||'未知')+'<br>QQ：'+_esc(c.used_by_qq||'未记录')+'<br>使用：'+_esc(_time(c.used_at))
+      : '';
+    html+='</div>';
+    html+='</div>';
+
+    html+='<div class="item-body">';
+    html+='<div class="actions">';
+
+    if(disabled){
+      html+='<button class="small good" onclick="event.stopPropagation();setFeatureCodeDisabled('+idx+',false)">启用功能码</button>';
+    }else{
+      html+='<button class="small warn" onclick="event.stopPropagation();setFeatureCodeDisabled('+idx+',true)">停用功能码</button>';
+    }
+
+    html+='<button class="small danger" onclick="event.stopPropagation();deleteFeatureCode('+idx+')">删除功能码</button>';
+    html+='</div>';
+
+    if(used && c.used_by){
+      html+=_adminBuildUserManageBlockByUsername(c.used_by);
+    }
+
+    html+='</div>';
+    html+='</div>';
+  });
+
+  el.innerHTML=html;
+}
+
+function setFeatureCodeDisabled(idx, disabled){
+  var c=currentFeatureCodes[idx];
+  if(!c)return;
+
+  var msg=disabled
+    ? '确认停用这个酒馆功能码？\n\n如果它已经被使用，对应用户的酒馆卡导入权限也会停用。'
+    : '确认重新启用这个酒馆功能码？\n\n如果它已经被使用，对应用户的酒馆卡导入权限也会恢复。';
+
+  if(!confirm(msg+'\n\n'+c.code))return;
+
+  _post('setFeatureCodeDisabled',{
+    code:c.code,
+    disabled:disabled
+  }).then(function(d){
+    if(!d.ok){
+      alert(d.error||'操作失败');
+      return;
+    }
+
+    c.disabled=disabled?1:0;
+    renderFeatureCodes();
+    adminToast(disabled?'功能码已停用':'功能码已启用');
+
+    loadUsers();
+  }).catch(function(e){
+    alert(adminFriendlyError(e));
+  });
+}
+
+function deleteFeatureCode(idx){
+  var c=currentFeatureCodes[idx];
+  if(!c)return;
+
+  var used=!!Number(c.used||0);
+  var msg=used
+    ? '这个酒馆功能码已被使用。删除后，对应用户的酒馆卡导入权限会一起删除。历史记录仍会保留，防止以后重复生成。确认删除？'
+    : '确认删除这个未使用酒馆功能码？历史记录仍会保留，防止以后重复生成。';
+
+  if(!confirm(msg+'\n\n'+c.code))return;
+
+  _post('deleteFeatureCode',{code:c.code}).then(function(d){
+    if(!d.ok){
+      alert(d.error||'删除失败');
+      return;
+    }
+
+    currentFeatureCodes=currentFeatureCodes.filter(function(x){
+      return x && x.code !== c.code;
+    });
+
+    renderFeatureCodes();
+    adminToast('酒馆功能码已删除');
+
+    loadUsers();
+    loadStats();
+  }).catch(function(e){
+    alert(adminFriendlyError(e));
+  });
+}
+
+var _adminUsersReqSeq = 0;
+
+function loadUsers(){
+  var reqSeq = ++_adminUsersReqSeq;
+  var listEl = document.getElementById('userList');
+
+  adminSetLoading('userList','正在加载用户设备…');
+
+  _post('listUsers').then(function(d){
+    if(reqSeq !== _adminUsersReqSeq)return;
+
+    if(!d.ok){
+      if(currentUsers && currentUsers.length > 0){
+        renderUsers();
+        adminToast(d.error || '用户列表刷新失败，已保留现有数据');
+      }else{
+        listEl.innerHTML='<span class="error">'+_esc(d.error)+'</span>';
+      }
+      return;
+    }
+
+    currentUsers=d.users||[];
+    renderUsers();
+
+    if(typeof renderUserOverview === 'function')renderUserOverview();
+    if(typeof renderCodes === 'function')renderCodes();
+    if(typeof renderFeatureCodes === 'function')renderFeatureCodes();
+  }).catch(function(){
+    if(reqSeq !== _adminUsersReqSeq)return;
+
+    if(currentUsers && currentUsers.length > 0){
+      renderUsers();
+      adminToast('用户列表刷新失败，已保留现有数据');
+    }else{
+      listEl.innerHTML='<span class="error">网络错误</span>';
+    }
+  });
+}
+
+function renderUsers(){
+  var el=document.getElementById('userList');
+  var q=(document.getElementById('userSearch')&&document.getElementById('userSearch').value||'').trim().toLowerCase();
+  var filter=(document.getElementById('userFilter')&&document.getElementById('userFilter').value)||'all';
+
+  var list=currentUsers.filter(function(u){
+    var disabled=!!Number(u.disabled||0);
+
+    if(filter==='normal'&&disabled)return false;
+    if(filter==='disabled'&&!disabled)return false;
+
+    if(q){
+      var searchText = (
+        String(u.username || '') + ' ' +
+        String(u.qq || '') + ' ' +
+        String(u.registration_code || '') + ' ' +
+        String(u.tavern_import_code || '')
+      ).toLowerCase();
+
+      if(searchText.indexOf(q) < 0)return false;
+    }
+
+    return true;
+  });
+
+  if(list.length===0){
+    el.innerHTML='没有符合条件的用户';
+    return;
+  }
+
+  var html='';
+
+  list.forEach(function(u){
+    var idx=currentUsers.indexOf(u);
+    var tokenList=[];
+
+    try{
+      tokenList=JSON.parse(u.tokens||'[]');
+      if(!Array.isArray(tokenList))tokenList=[];
+    }catch(e){
+      tokenList=[];
+    }
+
+    tokenList.sort(function(a,b){
+      return (b.time||0)-(a.time||0);
+    });
+
+    var disabled=!!Number(u.disabled||0);
+    var open=!!openUsers[u.username];
+
+    var tavernCode=_adminGetUserFeatureCode(u,'tavern_import');
+    var tavernDisabled=!!Number(u.tavern_import_disabled||0);
+    var tavernOn=_adminUserHasFeature(u,'tavern_import');
+    var tavernDisplay='';
+
+    if(tavernCode && tavernDisabled){
+      tavernDisplay='<span class="badge badge-disabled">已停用</span> <span class="code-text">'+_esc(tavernCode)+'</span>';
+    }else if(tavernOn){
+      tavernDisplay='<span class="code-text">'+_esc(tavernCode||'已开启')+'</span>';
+    }else{
+      tavernDisplay='未开启该功能';
+    }
+
+    html+='<div class="item '+(open?'open':'')+'">';
+    html+='<div class="item-head" onclick="toggleUser('+idx+')">';
+    html+='<div><div class="item-title">'+_esc(u.username)+' '+(disabled?'<span class="badge badge-disabled">已禁用</span>':'<span class="badge badge-normal">正常</span>')+'</div>'+
+      '<div class="muted">QQ：'+_esc(u.qq || '未填写')+' · 注册码：'+_esc(u.registration_code || '未记录')+' · 酒馆：'+tavernDisplay+' · '+tokenList.length+' 台已绑定设备 · 注册：'+_esc(_time(u.created_at))+'</div></div>';
+    html+='<div class="item-meta">最后登录<br>'+_esc(_time(u.last_login))+'<br>点击展开</div>';
+    html+='</div>';
+
+    html+='<div class="item-body">';
+
+    html+='<div class="actions">';
+    html+='<button class="small secondary" onclick="event.stopPropagation();kickAllDevices('+idx+')">解绑全部设备</button>';
+
+    if(disabled){
+      html+='<button class="small good" onclick="event.stopPropagation();setUserDisabled('+idx+',false)">启用用户</button>';
+    }else{
+      html+='<button class="small warn" onclick="event.stopPropagation();setUserDisabled('+idx+',true)">禁用并清空设备</button>';
+    }
+
+    html+='<button class="small warn" onclick="event.stopPropagation();resetUserPassword('+idx+')">重置密码并清空设备</button>';
+    html+='<button class="small danger" onclick="event.stopPropagation();deleteUser('+idx+')">删除用户</button>';
+    html+='</div>';
+
+    if(tokenList.length===0){
+      html+='<div class="device"><div class="device-note">暂无已绑定登录设备</div></div>';
+    }else{
+      tokenList.forEach(function(t,didx){
+        var info=t.deviceInfo||{};
+        var browser=info.browser||'旧登录设备';
+        var os=info.os||'未知系统';
+        var mode=info.mode||'未知模式';
+
+        html+='<div class="device">';
+        html+='<div class="device-title"><span>'+_esc(browser)+' · '+_esc(os)+' · '+_esc(mode)+'</span><span class="device-time">'+_esc(_time(t.time||info.savedAt))+'</span></div>';
+        html+='<div class="device-note">仅记录粗略浏览器类型、系统类型和登录模式，不记录完整UA。部分套壳浏览器可能显示为Chrome/Chromium系。管理员解绑后，对应浏览器会在下次验证、刷新或切回前台时退出登录。</div>';
+        html+='<div class="device-id">deviceId：'+_esc(_shortId(t.deviceId))+'</div>';
+        html+='<div class="actions"><button class="small danger" onclick="event.stopPropagation();kickDevice('+idx+','+didx+')">解绑这个设备</button></div>';
+        html+='</div>';
+      });
+    }
+
+    html+='</div>';
+    html+='</div>';
+  });
+
+  el.innerHTML=html;
+}
+
+function _adminGetUserFeatureCode(u,feature){
+  if(!u)return '';
+
+  feature = feature || 'tavern_import';
+
+  if(feature === 'tavern_import'){
+    return String(
+      u.tavern_import_code ||
+      u.tavernImportCode ||
+      u.feature_tavern_import_code ||
+      u.tavernCode ||
+      ''
+    );
+  }
+
+  return '';
+}
+
+function _adminUserHasFeature(u,feature){
+  var code = _adminGetUserFeatureCode(u,feature);
+
+  if(feature === 'tavern_import' && u && Number(u.tavern_import_disabled || 0)){
+    return false;
+  }
+
+  if(code)return true;
+
+  if(u && u.features && typeof u.features === 'object'){
+    var f = u.features[feature];
+
+    if(f && f.disabled !== 1 && f.disabled !== true)return true;
+  }
+
+  return false;
+}
+
+function _adminFindUserIndexByUsername(username){
+  username = String(username || '');
+
+  if(!username)return -1;
+
+  for(var i = 0; i < (currentUsers || []).length; i++){
+    if(currentUsers[i] && currentUsers[i].username === username){
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function _adminBuildUserManageBlockByUsername(username){
+  var idx = _adminFindUserIndexByUsername(username);
+
+  if(idx < 0){
+    return '<div class="device"><div class="device-note">用户详情尚未加载。切换到用户总览或刷新当前页后可查看设备和酒馆功能码。</div></div>';
+  }
+
+  var u = currentUsers[idx];
+  var disabled = !!Number(u.disabled || 0);
+  var tokenList = [];
+
+  try{
+    tokenList = JSON.parse(u.tokens || '[]');
+
+    if(!Array.isArray(tokenList)){
+      tokenList = [];
+    }
+  }catch(e){
+    tokenList = [];
+  }
+
+  tokenList.sort(function(a,b){
+    return (b.time || 0) - (a.time || 0);
+  });
+
+  var tavernCode = _adminGetUserFeatureCode(u,'tavern_import');
+  var tavernDisabled = !!Number(u.tavern_import_disabled || 0);
+  var tavernOn = _adminUserHasFeature(u,'tavern_import');
+  var tavernDisplay = '';
+
+  if(tavernCode && tavernDisabled){
+    tavernDisplay = '<span class="badge badge-disabled">已停用</span> <span class="code-text">'+_esc(tavernCode)+'</span>';
+  }else if(tavernOn){
+    tavernDisplay = '<span class="code-text">'+_esc(tavernCode || '已开启')+'</span>';
+  }else{
+    tavernDisplay = '未开启该功能';
+  }
+
+  var html = '';
+
+  html += '<div style="margin-top:10px;padding:10px 12px;background:rgba(124,111,155,0.08);border:1px solid rgba(124,111,155,0.18);border-radius:12px">';
+  html += '<div style="font-size:12px;font-weight:800;color:#7c6f9b;margin-bottom:6px">关联用户管理</div>';
+  html += '<div class="muted">用户名：<span class="code-text">'+_esc(u.username || '未知用户')+'</span> '+(disabled?'<span class="badge badge-disabled">已禁用</span>':'<span class="badge badge-normal">正常</span>')+'</div>';
+  html += '<div class="muted">QQ：'+_esc(u.qq || '未填写')+'</div>';
+  html += '<div class="muted">注册激活码：<span class="code-text">'+_esc(u.registration_code || '未记录')+'</span></div>';
+  html += '<div class="muted">酒馆卡导入：'+tavernDisplay+'</div>';
+  html += '<div class="muted">'+tokenList.length+' 台已绑定设备 · 注册：'+_esc(_time(u.created_at))+' · 最后登录：'+_esc(_time(u.last_login))+'</div>';
+
+  html += '<div class="actions">';
+  html += '<button class="small secondary" onclick="kickAllDevices('+idx+')">解绑全部设备</button>';
+
+  if(disabled){
+    html += '<button class="small good" onclick="setUserDisabled('+idx+',false)">启用用户</button>';
+  }else{
+    html += '<button class="small warn" onclick="setUserDisabled('+idx+',true)">禁用并清空设备</button>';
+  }
+
+  html += '<button class="small warn" onclick="resetUserPassword('+idx+')">重置密码并清空设备</button>';
+  html += '<button class="small danger" onclick="deleteUser('+idx+')">删除用户</button>';
+  html += '</div>';
+
+  if(tokenList.length > 0){
+    html += '<div style="margin-top:8px">';
+
+    tokenList.forEach(function(t,didx){
+      var info = t.deviceInfo || {};
+
+      html += '<div class="device">';
+      html += '<div class="device-title"><span>'+_esc((info.browser || '未知浏览器')+' · '+(info.os || '未知系统')+' · '+(info.mode || '未知模式'))+'</span><span class="device-time">'+_esc(_time(t.time || info.savedAt))+'</span></div>';
+      html += '<div class="device-id">deviceId：'+_esc(_shortId(t.deviceId))+'</div>';
+      html += '<div class="actions"><button class="small danger" onclick="kickDevice('+idx+','+didx+')">解绑这个设备</button></div>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+  }else{
+    html += '<div class="device"><div class="device-note">暂无已绑定登录设备</div></div>';
+  }
+
+  html += '</div>';
+
+  return html;
+}
+
+function loadUserOverview(){
+  adminSetLoading('userOverviewList','正在加载用户总览…');
+
+  Promise.all([
+    _post('listUsers').catch(function(){ return {ok:false,users:currentUsers||[]}; }),
+    _post('listCodes').catch(function(){ return {ok:false,codes:currentCodes||[]}; })
+  ]).then(function(all){
+    var usersResp = all[0] || {};
+    var codesResp = all[1] || {};
+
+    if(usersResp.users){
+      currentUsers = usersResp.users || [];
+    }
+
+    if(codesResp.codes){
+      currentCodes = codesResp.codes || [];
+    }
+
+    renderUserOverview();
+  }).catch(function(e){
+    document.getElementById('userOverviewList').innerHTML='<span class="error">'+_esc(adminFriendlyError(e))+'</span>';
+  });
+}
+
+function renderUserOverview(){
+  var el=document.getElementById('userOverviewList');
+  if(!el)return;
+
+  var q=(document.getElementById('userOverviewSearch')&&document.getElementById('userOverviewSearch').value||'').trim().toLowerCase();
+  var filter=(document.getElementById('userOverviewFilter')&&document.getElementById('userOverviewFilter').value)||'all';
+
+  var list=(currentUsers||[]).slice();
+
+  list.sort(function(a,b){
+    return Number(b.created_at||0)-Number(a.created_at||0);
+  });
+
+  list=list.filter(function(u){
+    var disabled=!!Number(u.disabled||0);
+    var tavernOn=_adminUserHasFeature(u,'tavern_import');
+
+    if(filter==='normal'&&disabled)return false;
+    if(filter==='disabled'&&!disabled)return false;
+    if(filter==='tavernOn'&&!tavernOn)return false;
+    if(filter==='tavernOff'&&tavernOn)return false;
+
+    var tavernCode=_adminGetUserFeatureCode(u,'tavern_import');
+
+    var text=(
+      String(u.username||'')+' '+
+      String(u.qq||'')+' '+
+      String(u.registration_code||'')+' '+
+      String(tavernCode||'')
+    ).toLowerCase();
+
+    if(q&&text.indexOf(q)<0)return false;
+
+    return true;
+  });
+
+  if(list.length===0){
+    el.innerHTML='没有符合条件的用户';
+    return;
+  }
+
+  var html='';
+
+  list.forEach(function(u){
+    var idx=currentUsers.indexOf(u);
+    var disabled=!!Number(u.disabled||0);
+    var tokenList=[];
+
+    try{
+      tokenList=JSON.parse(u.tokens||'[]');
+      if(!Array.isArray(tokenList))tokenList=[];
+    }catch(e){
+      tokenList=[];
+    }
+
+    var tavernCode=_adminGetUserFeatureCode(u,'tavern_import');
+    var tavernDisabled=!!Number(u.tavern_import_disabled||0);
+    var tavernOn=_adminUserHasFeature(u,'tavern_import');
+    var tavernDisplay = '';
+
+    if(tavernCode && tavernDisabled){
+      tavernDisplay = '<span class="badge badge-disabled">已停用</span> <span class="code-text">'+_esc(tavernCode)+'</span>';
+    }else if(tavernOn){
+      tavernDisplay = '<span class="code-text">'+_esc(tavernCode||'已开启')+'</span>';
+    }else{
+      tavernDisplay = '未开启该功能';
+    }
+
+    var open = !!openOverviewUsers[u.username];
+
+    html+='<div class="item '+(open?'open':'')+'">';
+    html+='<div class="item-head" onclick="toggleOverviewUser(\''+_esc(u.username||'')+'\')">';
+    html+='<div style="min-width:0;flex:1">';
+    html+='<div class="item-title">'+_esc(u.username||'未知用户')+' '+(disabled?'<span class="badge badge-disabled">已禁用</span>':'<span class="badge badge-normal">正常</span>')+'</div>';
+    html+='<div class="muted">QQ：'+_esc(u.qq||'未填写')+'</div>';
+    html+='<div class="muted">注册激活码：<span class="code-text">'+_esc(u.registration_code||'未记录')+'</span></div>';
+    html+='<div class="muted">酒馆卡导入：'+tavernDisplay+'</div>';
+    html+='<div class="muted">'+tokenList.length+' 台已绑定设备 · 注册：'+_esc(_time(u.created_at))+' · 最后登录：'+_esc(_time(u.last_login))+'</div>';
+    html+='</div>';
+    html+='</div>';
+
+    html+='<div class="item-body">';
+    html+='<div class="actions">';
+
+    html+='<button class="small secondary" onclick="event.stopPropagation();kickAllDevices('+idx+')">解绑全部设备</button>';
+
+    if(disabled){
+      html+='<button class="small good" onclick="event.stopPropagation();setUserDisabled('+idx+',false)">启用用户</button>';
+    }else{
+      html+='<button class="small warn" onclick="event.stopPropagation();setUserDisabled('+idx+',true)">禁用并清空设备</button>';
+    }
+
+    html+='<button class="small warn" onclick="event.stopPropagation();resetUserPassword('+idx+')">重置密码并清空设备</button>';
+    html+='<button class="small danger" onclick="event.stopPropagation();deleteUser('+idx+')">删除用户</button>';
+    html+='</div>';
+
+    if(tokenList.length>0){
+      html+='<div style="margin-top:8px">';
+      tokenList.sort(function(a,b){return (b.time||0)-(a.time||0);}).forEach(function(t,didx){
+        var info=t.deviceInfo||{};
+        html+='<div class="device">';
+        html+='<div class="device-title"><span>'+_esc((info.browser||'未知浏览器')+' · '+(info.os||'未知系统')+' · '+(info.mode||'未知模式'))+'</span><span class="device-time">'+_esc(_time(t.time||info.savedAt))+'</span></div>';
+        html+='<div class="device-id">deviceId：'+_esc(_shortId(t.deviceId))+'</div>';
+        html+='<div class="actions"><button class="small danger" onclick="kickDevice('+idx+','+didx+')">解绑这个设备</button></div>';
+        html+='</div>';
+      });
+      html+='</div>';
+    }else{
+      html+='<div class="device"><div class="device-note">暂无已绑定登录设备</div></div>';
+    }
+
+    html+='</div>';
+    html+='</div>';
+  });
+
+  el.innerHTML=html;
+}
+
+function toggleUser(idx){
+  var u=currentUsers[idx];
+  if(!u)return;
+
+  openUsers[u.username]=!openUsers[u.username];
+  renderUsers();
+}
+
+function _getUserTokens(u){
+  try{
+    var list=JSON.parse(u.tokens||'[]');
+    return Array.isArray(list)?list:[];
+  }catch(e){
+    return [];
+  }
+}
+
+function kickDevice(userIdx,deviceIdx){
+  var u=currentUsers[userIdx];
+  if(!u)return;
+
+  var list=_getUserTokens(u).sort(function(a,b){
+    return (b.time||0)-(a.time||0);
+  });
+
+  var t=list[deviceIdx];
+  if(!t)return;
+
+  if(!confirm('确认解绑这个登录设备？\n\n用户：'+u.username+'\n\n解绑后，该设备会在下次验证、刷新或切回前台时退出登录。'))return;
+
+  _post('kickDevice',{
+    username:u.username,
+    deviceToken:t.token||'',
+    deviceId:t.deviceId||''
+  }).then(function(d){
+    if(!d.ok){
+      alert(d.error||'操作失败');
+      return;
+    }
+
+    var rawList=_getUserTokens(u);
+
+    rawList=rawList.filter(function(x){
+      if(!x)return false;
+
+      if(t.token && x.token===t.token)return false;
+      if(!t.token && t.deviceId && x.deviceId===t.deviceId)return false;
+
+      return true;
+    });
+
+    u.tokens=JSON.stringify(rawList);
+    renderUsers();
+    adminToast('设备已解绑');
+
+    _adminRefreshUsersInBackground();
+  }).catch(function(){
+    alert('网络错误');
+  });
+}
+
+function kickAllDevices(idx){
+  var u=currentUsers[idx];
+  if(!u)return;
+
+  if(!confirm('确认解绑该用户全部登录设备？\n\n'+u.username+'\n\n解绑后，该用户所有已登录设备都会在下次验证、刷新或切回前台时退出登录。'))return;
+
+  _post('kickAllDevices',{username:u.username}).then(function(d){
+    if(!d.ok){
+      alert(d.error||'操作失败');
+      return;
+    }
+
+    u.tokens='[]';
+    renderUsers();
+    adminToast('全部设备已解绑');
+
+    _adminRefreshUsersInBackground();
+  }).catch(function(){
+    alert('网络错误');
+  });
+}
+
+function setUserDisabled(idx,disabled){
+  var u=currentUsers[idx];
+  if(!u)return;
+
+  var msg=disabled
+    ? '确认禁用该用户并清空所有登录设备？\n\n禁用后该用户不能登录，已有设备也会在下次验证、刷新或切回前台时退出。'
+    : '确认启用该用户？\n\n启用后用户需要重新登录。';
+
+  if(!confirm(msg+'\n\n'+u.username))return;
+
+  _post('setUserDisabled',{
+    username:u.username,
+    disabled:disabled,
+    kick:true
+  }).then(function(d){
+    if(!d.ok){
+      alert(d.error||'操作失败');
+      return;
+    }
+
+    u.disabled=disabled?1:0;
+
+    if(disabled){
+      u.tokens='[]';
+    }
+
+    renderUsers();
+    adminToast(disabled?'用户已禁用，设备已清空':'用户已启用');
+
+    _adminRefreshUsersInBackground();
+  }).catch(function(){
+    alert('网络错误');
+  });
+}
+
+function resetUserPassword(idx){
+  var u=currentUsers[idx];
+  if(!u)return;
+
+  resetPwdUsername=u.username;
+
+  document.getElementById('resetPwdDesc').textContent='正在给用户「'+u.username+'」设置新密码。重置成功后，会清空该用户所有登录设备。';
+  document.getElementById('resetPwdInput1').value='';
+  document.getElementById('resetPwdInput2').value='';
+  document.getElementById('resetPwdInput1').type='password';
+  document.getElementById('resetPwdInput2').type='password';
+  document.getElementById('resetPwdError').style.color='#a95864';
+  document.getElementById('resetPwdError').textContent='';
+
+  var eyeBtns=document.querySelectorAll('#resetPwdModal .admin-eye-btn');
+  eyeBtns.forEach(function(btn){
+    btn.innerHTML=_adminEyeSvg(false);
+    btn.setAttribute('aria-label','显示密码');
+    btn.setAttribute('title','显示密码');
+  });
+
+  document.getElementById('resetPwdModal').classList.add('active');
+
+  setTimeout(function(){
+    document.getElementById('resetPwdInput1').focus();
+  },80);
+}
+
+function closeResetPwdModal(){
+  document.getElementById('resetPwdModal').classList.remove('active');
+  resetPwdUsername='';
+}
+
+function submitResetUserPassword(){
+  var username=resetPwdUsername;
+  var u=currentUsers.find(function(x){return x && x.username===username});
+  var err=document.getElementById('resetPwdError');
+
+  if(!username){
+    err.style.color='#a95864';
+    err.textContent='用户数据不存在，请刷新列表后重试';
+    return;
+  }
+
+  var pwd=document.getElementById('resetPwdInput1').value;
+  var pwd2=document.getElementById('resetPwdInput2').value;
+
+  err.style.color='#a95864';
+  err.textContent='';
+
+  if(!pwd || !pwd2){
+    err.textContent='请填写两次新密码';
+    return;
+  }
+
+  if(!_isValidAdminNewPassword(pwd)){
+    err.textContent='新密码需10-18位，至少包含英文和数字，不能包含空格';
+    return;
+  }
+
+  if(pwd===username){
+    err.textContent='新密码不能和用户名完全相同';
+    return;
+  }
+
+  if(pwd!==pwd2){
+    err.textContent='两次输入的新密码不一致';
+    return;
+  }
+
+  if(!confirm('确认重置该用户密码并清空所有登录设备？\n\n用户：'+username+'\n\n重置后，该用户所有已登录设备都会退出，需要用新密码重新登录。')){
+    return;
+  }
+
+  err.style.color='#7c6f9b';
+  err.textContent='正在重置密码…';
+
+  _post('resetUserPassword',{
+    username:username,
+    newPassword:pwd
+  }).then(function(d){
+    if(!d.ok){
+      err.style.color='#a95864';
+      err.textContent=d.error||'重置失败';
+      return;
+    }
+
+    if(u){
+      u.tokens='[]';
+      renderUsers();
+    }
+
+    closeResetPwdModal();
+    adminToast('密码已重置，设备已清空');
+
+    _adminRefreshUsersInBackground();
+  }).catch(function(e){
+    err.style.color='#a95864';
+    err.textContent=adminFriendlyError(e);
+  });
+}
+
+function deleteUser(idx){
+  var u=currentUsers[idx];
+  if(!u)return;
+
+  if(!confirm('危险操作：确认删除这个用户？\n\n删除用户不会恢复激活码，也不会删除用户本地聊天记录。\n\n'+u.username))return;
+
+  var typed=prompt('请输入用户名确认删除：');
+  if(typed!==u.username){
+    alert('用户名不匹配，已取消');
+    return;
+  }
+
+  _post('deleteUser',{username:u.username}).then(function(d){
+    if(!d.ok){
+      alert(d.error||'删除失败');
+      return;
+    }
+
+    delete openUsers[u.username];
+
+    currentUsers=currentUsers.filter(function(x){
+      return x && x.username !== u.username;
+    });
+
+    renderUsers();
+    adminToast('用户已删除');
+
+    _adminRefreshUsersInBackground();
+    loadDateReport();
+  }).catch(function(){
+    alert('网络错误');
+  });
+}
+
+function initDateSelects(){
+  var y=document.getElementById('dateYear');
+  var m=document.getElementById('dateMonth');
+  var d=document.getElementById('dateDay');
+  var now=new Date();
+  var year=now.getFullYear();
+
+  if(y.options.length===0){
+    for(var yy=year+1;yy>=year-5;yy--){
+      y.add(new Option(yy+'年',yy));
+    }
+
+    for(var mm=1;mm<=12;mm++){
+      m.add(new Option(mm+'月',mm));
+    }
+  }
+
+  y.value=year;
+  m.value=now.getMonth()+1;
+
+  refreshDaySelect();
+  d.value=now.getDate();
+
+  y.onchange=refreshDaySelect;
+  m.onchange=refreshDaySelect;
+}
+
+function refreshDaySelect(){
+  var y=Number(document.getElementById('dateYear').value);
+  var m=Number(document.getElementById('dateMonth').value);
+  var d=document.getElementById('dateDay');
+  var old=Number(d.value)||1;
+  var days=new Date(y,m,0).getDate();
+
+  d.innerHTML='';
+
+  for(var i=1;i<=days;i++){
+    d.add(new Option(i+'日',i));
+  }
+
+  d.value=Math.min(old,days);
+}
+
+function loadDateReport(){
+  if(!document.getElementById('dateYear').value)return;
+
+  var r=_dayStartEnd();
+  var el=document.getElementById('dateReport');
+
+  el.textContent='正在加载日期统计…';
+
+  Promise.all([
+    _post('dateReport',{start:r.start,end:r.end}).catch(function(e){
+      console.warn('后端 dateReport 失败，改用前端本地过滤：',e);
+      return {ok:false,registeredUsers:[],usedCodes:[]};
+    }),
+    _post('listUsers').catch(function(e){
+      console.warn('日期统计 listUsers 失败：',e);
+      return {ok:false,users:[]};
+    }),
+    _post('listCodes').catch(function(e){
+      console.warn('日期统计 listCodes 失败：',e);
+      return {ok:false,codes:[]};
+    })
+  ]).then(function(all){
+    var backend=all[0]||{};
+    var usersResp=all[1]||{};
+    var codesResp=all[2]||{};
+
+    if(usersResp.users){
+      currentUsers = usersResp.users || [];
+    }
+
+    var localUsers=(usersResp.users||[]).filter(function(u){
+      var ts=Number(u.created_at||0);
+      return ts>=r.start && ts<r.end;
+    });
+
+    var localCodes=(codesResp.codes||[]).filter(function(c){
+      var ts=Number(c.used_at||0);
+      return ts>=r.start && ts<r.end;
+    });
+
+    // 优先用本地过滤结果。因为列表里能显示的 created_at，一定能被这里查到。
+    // 如果本地列表失败，再回退到后端 dateReport。
+    var registeredUsers=usersResp.ok ? localUsers : (backend.registeredUsers||[]);
+    var usedCodes=codesResp.ok ? localCodes : (backend.usedCodes||[]);
+
+    registeredUsers.sort(function(a,b){
+      return Number(b.created_at||0)-Number(a.created_at||0);
+    });
+
+    usedCodes.sort(function(a,b){
+      return Number(b.used_at||0)-Number(a.used_at||0);
+    });
+
+    var html='';
+    html+='当天注册用户：'+registeredUsers.length+'\n';
+    html+='当天使用激活码：'+usedCodes.length+'\n\n';
+
+    html+='【注册用户】\n';
+
+    if(registeredUsers.length===0){
+      html+='无\n';
+    }else{
+      registeredUsers.forEach(function(u){
+        var tavernCode=_adminGetUserFeatureCode(u,'tavern_import');
+        var tavernDisabled=!!Number(u.tavern_import_disabled||0);
+        var tavernOn=_adminUserHasFeature(u,'tavern_import');
+        var tavernText=tavernCode
+          ? ((tavernDisabled?'已停用：':'')+tavernCode)
+          : (tavernOn?'已开启':'未开启该功能');
+
+        html+='- '+u.username+' · QQ：'+(u.qq||'未填写')+' · 注册码：'+(u.registration_code||'未记录')+' · 酒馆：'+tavernText+' · '+_time(u.created_at)+(Number(u.disabled||0)?' · 已禁用':'')+'\n';
+      });
+    }
+
+    html+='\n【使用激活码】\n';
+
+    if(usedCodes.length===0){
+      html+='无\n';
+    }else{
+      usedCodes.forEach(function(c){
+        var userIdx=_adminFindUserIndexByUsername(c.used_by||'');
+        var linkedUser=userIdx>=0?currentUsers[userIdx]:null;
+        var usedTavernCode=linkedUser?_adminGetUserFeatureCode(linkedUser,'tavern_import'):'';
+        var usedTavernDisabled=linkedUser?!!Number(linkedUser.tavern_import_disabled||0):false;
+        var usedTavernText=usedTavernCode
+          ? ((usedTavernDisabled?'已停用：':'')+usedTavernCode)
+          : '未开启该功能';
+
+        html+='- '+c.code+' · '+(c.used_by||'未知用户')+' · QQ：'+(c.used_by_qq||'未记录')+' · 酒馆：'+usedTavernText+' · '+_time(c.used_at)+'\n';
+      });
+    }
+
+    if(!backend.ok){
+      html+='\n提示：后端日期接口未返回有效结果，当前使用前端列表过滤结果。';
+    }
+
+    el.textContent=html;
+  }).catch(function(e){
+    el.innerHTML='<span class="error">'+_esc(adminFriendlyError(e))+'</span>';
+  });
+}
+
+document.addEventListener('keydown',function(e){
+  var modal=document.getElementById('resetPwdModal');
+
+  if(!modal || !modal.classList.contains('active'))return;
+
+  if(e.key==='Escape'){
+    closeResetPwdModal();
+  }
+
+  if(e.key==='Enter'){
+    submitResetUserPassword();
+  }
+});
+
+window.addEventListener('error',function(e){
+  console.error('管理后台脚本错误：',e.error||e.message||e);
+  adminSetLoginStatus('页面脚本错误：'+(e.message||'未知错误')+'。请刷新或清理PWA缓存后重试','error');
+  adminToast('页面脚本错误');
+});
+
+window.addEventListener('unhandledrejection',function(e){
+  console.error('管理后台异步错误：',e.reason||e);
+  adminSetLoginStatus('异步请求错误：'+adminFriendlyError(e.reason||e),'error');
+});
+
+if(adminToken){
+  document.getElementById('adminLoginSection').style.display='none';
+  document.getElementById('adminPanel').style.display='block';
+  initDateSelects();
+  loadStats();
+  startAdminAutoRefresh();
+}
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('./sw.js').catch(function(){});
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1571 @@
+export default {
+  async fetch(request, env) {
+    const db = env.DB;
+
+    // CORS
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST,OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        },
+      });
+    }
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    };
+
+    if (request.method !== 'POST') {
+      return new Response(JSON.stringify({ ok: false, error: 'Method not allowed' }), { status: 405, headers });
+    }
+
+    try {
+      const url = new URL(request.url);
+      const path = url.pathname;
+
+      const body = await request.json();
+      const { action } = body;
+
+      // 自动建表 / 自动补字段。
+      // 对已有数据库无破坏；对新数据库可免手动建表。
+      await ensureAdminSchema(db);
+
+      // /api/auth 路由
+      if (path === '/api/auth' || path === '/') {
+        if (action === 'register') return await handleRegister(db, body, headers);
+        if (action === 'login') return await handleLogin(db, body, headers);
+        if (action === 'verify') return await handleVerify(db, body, headers);
+        if (action === 'listDevices') return await handleListDevices(db, body, headers);
+        if (action === 'unbindDevice') return await handleUnbindDevice(db, body, headers);
+        if (action === 'changePassword') return await handleChangePassword(db, body, headers);
+        if (action === 'checkFeature') return await handleCheckFeature(db, body, headers);
+        if (action === 'redeemFeatureCode') return await handleRedeemFeatureCode(db, body, headers);
+        return new Response(JSON.stringify({ ok: false, error: '未知操作' }), { headers });
+      }
+
+      // /api/admin 路由
+      if (path === '/api/admin') {
+        const ADMIN_PWD = String(env.ADMIN_PWD || '').trim();
+
+        if (!ADMIN_PWD) {
+          return resp({
+            ok: false,
+            error: '管理员密码未配置，请在 Cloudflare Worker 环境变量中设置 ADMIN_PWD'
+          }, headers);
+        }
+
+        if (action === 'login') {
+          if (body.password === ADMIN_PWD) {
+            const token = await createAdminToken(ADMIN_PWD);
+            return resp({ ok: true, token }, headers);
+          }
+          return resp({ ok: false, error: '密码错误' }, headers);
+        }
+
+        if (!(await verifyAdminToken(body.token, ADMIN_PWD))) {
+          return resp({ ok: false, error: '未登录或登录已过期' }, headers);
+        }
+
+        await ensureAdminSchema(db);
+
+        if (action === 'generate') {
+          const count = Math.min(50, Math.max(1, Number(body.count) || 5));
+          const prefix = String(body.prefix || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+          const codes = [];
+          const chars = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+          let attempts = 0;
+          const maxAttempts = count * 30;
+
+          while (codes.length < count && attempts < maxAttempts) {
+            attempts++;
+
+            let code = prefix;
+            const randomLen = 8 - prefix.length;
+
+            for (let j = 0; j < Math.max(4, randomLen); j++) {
+              code += chars[Math.floor(Math.random() * chars.length)];
+            }
+
+            // 同一批里也不能重复
+            if (codes.includes(code)) {
+              continue;
+            }
+
+            const existed = await db.prepare(
+              'SELECT code FROM activation_codes WHERE code = ? ' +
+              'UNION SELECT code FROM activation_code_history WHERE code = ? ' +
+              'UNION SELECT code FROM feature_codes WHERE code = ? ' +
+              'UNION SELECT code FROM feature_code_history WHERE code = ? ' +
+              'LIMIT 1'
+            ).bind(code, code, code, code).first();
+
+            if (existed) {
+              continue;
+            }
+
+            try {
+              const now = Date.now();
+
+              await db.prepare('INSERT INTO activation_codes (code, created_at) VALUES (?, ?)')
+                .bind(code, now)
+                .run();
+
+              await db.prepare('INSERT OR IGNORE INTO activation_code_history (code, created_at, source) VALUES (?, ?, ?)')
+                .bind(code, now, 'generated')
+                .run();
+
+              codes.push(code);
+            } catch(e) {
+              // 遇到并发或唯一约束冲突时继续重试。
+            }
+          }
+
+          if (codes.length < count) {
+            return resp({
+              ok: false,
+              error: '激活码生成失败：可用随机码不足或重复过多，请换个前缀后重试',
+              codes
+            }, headers);
+          }
+
+          return resp({ ok: true, codes }, headers);
+        }
+
+        if (action === 'generateFeatureCodes') {
+          const count = Math.min(50, Math.max(1, Number(body.count) || 5));
+          const feature = String(body.feature || '').trim() || 'tavern_import';
+          const prefixRaw = String(body.prefix || 'TV').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+          const prefix = prefixRaw || 'TV';
+          const codes = [];
+          const chars = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+          let attempts = 0;
+          const maxAttempts = count * 60;
+
+          while (codes.length < count && attempts < maxAttempts) {
+            attempts++;
+
+            let code = prefix;
+            const randomLen = 10 - prefix.length;
+
+            for (let j = 0; j < Math.max(4, randomLen); j++) {
+              code += chars[Math.floor(Math.random() * chars.length)];
+            }
+
+            if (codes.includes(code)) continue;
+
+            const existed = await db.prepare(
+              'SELECT code FROM activation_codes WHERE code = ? ' +
+              'UNION SELECT code FROM activation_code_history WHERE code = ? ' +
+              'UNION SELECT code FROM feature_codes WHERE code = ? ' +
+              'UNION SELECT code FROM feature_code_history WHERE code = ? ' +
+              'LIMIT 1'
+            ).bind(code, code, code, code).first();
+
+            if (existed) continue;
+
+            try {
+              const now = Date.now();
+
+              await db.prepare('INSERT INTO feature_codes (code, feature, created_at) VALUES (?, ?, ?)')
+                .bind(code, feature, now)
+                .run();
+
+              await db.prepare('INSERT OR IGNORE INTO feature_code_history (code, feature, created_at, source) VALUES (?, ?, ?, ?)')
+                .bind(code, feature, now, 'generated')
+                .run();
+
+              codes.push(code);
+            } catch(e) {}
+          }
+
+          if (codes.length < count) {
+            return resp({
+              ok:false,
+              error:'功能激活码生成失败：可用随机码不足或重复过多，请换个前缀后重试',
+              codes
+            }, headers);
+          }
+
+          return resp({ ok:true, codes }, headers);
+        }
+
+        if (action === 'listFeatureCodes') {
+          const feature = String(body.feature || '').trim() || 'tavern_import';
+
+          const rows = await db.prepare(
+            'SELECT fc.code, fc.feature, fc.used, fc.used_by, u.qq AS used_by_qq, fc.created_at, fc.used_at, fc.disabled ' +
+            'FROM feature_codes fc ' +
+            'LEFT JOIN users u ON u.username COLLATE BINARY = fc.used_by COLLATE BINARY ' +
+            'WHERE fc.feature = ? ' +
+            'ORDER BY fc.id DESC'
+          ).bind(feature).all();
+
+          return resp({ ok:true, codes:rows.results || [] }, headers);
+        }
+
+        if (action === 'deleteFeatureCode') {
+          const code = String(body.code || '').trim().toUpperCase();
+
+          if (!code) return resp({ ok:false, error:'缺少功能激活码' }, headers);
+
+          const row = await db.prepare('SELECT code, feature, used, used_by, created_at FROM feature_codes WHERE code = ?')
+            .bind(code)
+            .first();
+
+          if (!row) return resp({ ok:false, error:'功能激活码不存在' }, headers);
+
+          await db.prepare('INSERT OR IGNORE INTO feature_code_history (code, feature, created_at, source) VALUES (?, ?, ?, ?)')
+            .bind(row.code, row.feature || '', row.created_at || Date.now(), row.used ? 'deleted_used' : 'deleted_unused')
+            .run();
+
+          if (row.used_by) {
+            await db.prepare('DELETE FROM user_features WHERE username COLLATE BINARY = ? AND feature = ? AND code = ?')
+              .bind(row.used_by, row.feature || '', row.code)
+              .run();
+          }
+
+          await db.prepare('DELETE FROM feature_codes WHERE code = ?')
+            .bind(code)
+            .run();
+
+          return resp({ ok:true }, headers);
+        }
+
+        if (action === 'setFeatureCodeDisabled') {
+          const code = String(body.code || '').trim().toUpperCase();
+          const disabled = body.disabled ? 1 : 0;
+
+          if (!code) return resp({ ok:false, error:'缺少功能激活码' }, headers);
+
+          const row = await db.prepare('SELECT code, feature, used_by FROM feature_codes WHERE code = ?')
+            .bind(code)
+            .first();
+
+          if (!row) return resp({ ok:false, error:'功能激活码不存在' }, headers);
+
+          await db.prepare('UPDATE feature_codes SET disabled = ? WHERE code = ?')
+            .bind(disabled, code)
+            .run();
+
+          if (row.used_by) {
+            await db.prepare('UPDATE user_features SET disabled = ? WHERE username COLLATE BINARY = ? AND feature = ? AND code = ?')
+              .bind(disabled, row.used_by, row.feature || '', row.code)
+              .run();
+          }
+
+          return resp({ ok:true }, headers);
+        }
+
+        if (action === 'listCodes') {
+          const rows = await db.prepare(
+            'SELECT ac.code, ac.used, ac.used_by, u.qq AS used_by_qq, ac.created_at, ac.used_at ' +
+            'FROM activation_codes ac ' +
+            'LEFT JOIN users u ON u.username COLLATE BINARY = ac.used_by COLLATE BINARY ' +
+            'ORDER BY ac.id DESC'
+          ).all();
+
+          return resp({ ok: true, codes: rows.results || [] }, headers);
+        }
+
+        if (action === 'deleteCode') {
+          const code = String(body.code || '').trim().toUpperCase();
+          const force = !!body.force;
+
+          if (!code) return resp({ ok: false, error: '缺少激活码' }, headers);
+
+          const row = await db.prepare('SELECT code, used, used_by FROM activation_codes WHERE code = ?')
+            .bind(code)
+            .first();
+
+          if (!row) return resp({ ok: false, error: '激活码不存在' }, headers);
+
+          if (row.used && !force) {
+            return resp({ ok: false, needConfirm: true, error: '该激活码已被使用，如需删除请确认强制删除' }, headers);
+          }
+
+          await db.prepare('INSERT OR IGNORE INTO activation_code_history (code, created_at, source) VALUES (?, ?, ?)')
+            .bind(code, Date.now(), row.used ? 'deleted_used' : 'deleted_unused')
+            .run();
+
+          await db.prepare('DELETE FROM activation_codes WHERE code = ?').bind(code).run();
+
+          return resp({ ok: true }, headers);
+        }
+
+        if (action === 'listUsers') {
+          const rows = await db.prepare(
+            'SELECT u.username, u.qq, u.tokens, u.created_at, u.last_login, u.disabled, ' +
+            'COALESCE(NULLIF(u.registration_code, ""), (' +
+              'SELECT ac.code FROM activation_codes ac ' +
+              'WHERE ac.used_by COLLATE BINARY = u.username COLLATE BINARY ' +
+              'AND ac.used = 1 ' +
+              'ORDER BY CAST(ac.used_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), "") AS registration_code, ' +
+            'COALESCE((' +
+              'SELECT uf.code FROM user_features uf ' +
+              'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+              'WHERE uf.username COLLATE BINARY = u.username COLLATE BINARY ' +
+              'AND uf.feature = "tavern_import" ' +
+              'AND fc.code IS NOT NULL ' +
+              'ORDER BY CAST(uf.unlocked_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), "") AS tavern_import_code, ' +
+            'COALESCE((' +
+              'SELECT CASE WHEN (uf.disabled = 1 OR fc.disabled = 1) THEN 1 ELSE 0 END ' +
+              'FROM user_features uf ' +
+              'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+              'WHERE uf.username COLLATE BINARY = u.username COLLATE BINARY ' +
+              'AND uf.feature = "tavern_import" ' +
+              'ORDER BY CAST(uf.unlocked_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), 0) AS tavern_import_disabled ' +
+            'FROM users u ' +
+            'ORDER BY u.id DESC'
+          ).all();
+
+          const users = (rows.results || []).map(u => {
+            const tokenList = normalizeTokenList(u.tokens, Date.now()).map(t => {
+              return {
+                token: t && t.token ? String(t.token) : '',
+                time: t && t.time ? Number(t.time) : 0,
+                deviceId: t && t.deviceId ? normalizeDeviceId(t.deviceId) : '',
+                deviceInfo: normalizeDeviceInfo(t && t.deviceInfo ? t.deviceInfo : {})
+              };
+            }).filter(t => t.token);
+
+            return {
+              username: u.username,
+              qq: u.qq || '',
+              registration_code: u.registration_code || '',
+              tavern_import_code: u.tavern_import_code || '',
+              tavern_import_disabled: Number(u.tavern_import_disabled || 0) ? 1 : 0,
+              disabled: Number(u.disabled || 0) ? 1 : 0,
+              tokens: JSON.stringify(tokenList),
+              created_at: u.created_at,
+              last_login: u.last_login
+            };
+          });
+
+          return resp({ ok: true, users }, headers);
+        }
+
+        if (action === 'kickDevice') {
+          const username = normalizeUsername(body.username);
+          const token = String(body.deviceToken || '').trim();
+          const deviceId = normalizeDeviceId(body.deviceId || '');
+
+          if (!username) return resp({ ok: false, error: '缺少用户名' }, headers);
+          if (!token && !deviceId) return resp({ ok: false, error: '缺少设备标识' }, headers);
+
+          const user = await db.prepare('SELECT id, tokens FROM users WHERE username COLLATE BINARY = ?')
+            .bind(username)
+            .first();
+
+          if (!user) return resp({ ok: false, error: '用户不存在' }, headers);
+
+          let list = normalizeTokenList(user.tokens, Date.now());
+
+          const before = list.length;
+
+          list = list.filter(t => {
+            if (!t) return false;
+
+            const tid = t.token ? String(t.token).trim() : '';
+            const did = t.deviceId ? normalizeDeviceId(t.deviceId) : '';
+
+            if (token && tid === token) return false;
+            if (!token && deviceId && did === deviceId) return false;
+
+            return true;
+          });
+
+          await db.prepare('UPDATE users SET tokens = ? WHERE id = ?')
+            .bind(JSON.stringify(list), user.id)
+            .run();
+
+          return resp({ ok: true, removed: before - list.length }, headers);
+        }
+
+        if (action === 'kickAllDevices') {
+          const username = normalizeUsername(body.username);
+
+          if (!username) return resp({ ok: false, error: '缺少用户名' }, headers);
+
+          const user = await db.prepare('SELECT id FROM users WHERE username COLLATE BINARY = ?')
+            .bind(username)
+            .first();
+
+          if (!user) return resp({ ok: false, error: '用户不存在' }, headers);
+
+          await db.prepare('UPDATE users SET tokens = ? WHERE id = ?')
+            .bind('[]', user.id)
+            .run();
+
+          return resp({ ok: true }, headers);
+        }
+
+        if (action === 'setUserDisabled') {
+          const username = normalizeUsername(body.username);
+          const disabled = body.disabled ? 1 : 0;
+          const kick = body.kick !== false;
+
+          if (!username) return resp({ ok: false, error: '缺少用户名' }, headers);
+
+          const user = await db.prepare('SELECT id FROM users WHERE username COLLATE BINARY = ?')
+            .bind(username)
+            .first();
+
+          if (!user) return resp({ ok: false, error: '用户不存在' }, headers);
+
+          await db.prepare('UPDATE users SET disabled = ?, tokens = CASE WHEN ? THEN ? ELSE tokens END WHERE id = ?')
+            .bind(disabled, kick ? 1 : 0, '[]', user.id)
+            .run();
+
+          await db.prepare('UPDATE user_features SET disabled = ? WHERE username COLLATE BINARY = ?')
+            .bind(disabled, username)
+            .run();
+
+          return resp({ ok: true }, headers);
+        }
+
+        if (action === 'resetUserPassword') {
+          const username = normalizeUsername(body.username);
+          const newPassword = String(body.newPassword || '');
+
+          if (!username) return resp({ ok: false, error: '缺少用户名' }, headers);
+
+          if (!isValidUsername(username)) {
+            return resp({ ok: false, error: '用户名格式不正确' }, headers);
+          }
+
+          if (!isValidPassword(newPassword)) {
+            return resp({ ok: false, error: '新密码需10-18位，且至少包含英文和数字，不能包含空格' }, headers);
+          }
+
+          if (newPassword === username) {
+            return resp({ ok: false, error: '新密码不能和用户名完全相同' }, headers);
+          }
+
+          const user = await db.prepare('SELECT id FROM users WHERE username COLLATE BINARY = ?')
+            .bind(username)
+            .first();
+
+          if (!user) return resp({ ok: false, error: '用户不存在' }, headers);
+
+          const salt = crypto.randomUUID();
+          const hash = await hashPassword(newPassword, salt);
+
+          await db.prepare('UPDATE users SET password_hash = ?, salt = ?, tokens = ? WHERE id = ?')
+            .bind(hash, salt, '[]', user.id)
+            .run();
+
+          return resp({ ok: true }, headers);
+        }
+
+        if (action === 'deleteUser') {
+          const username = normalizeUsername(body.username);
+
+          if (!username) return resp({ ok: false, error: '缺少用户名' }, headers);
+
+          const user = await db.prepare('SELECT id FROM users WHERE username COLLATE BINARY = ?')
+            .bind(username)
+            .first();
+
+          if (!user) return resp({ ok: false, error: '用户不存在' }, headers);
+
+          await db.prepare(
+            'INSERT OR IGNORE INTO feature_code_history (code, feature, created_at, source) ' +
+            'SELECT code, feature, created_at, ? FROM feature_codes WHERE used_by COLLATE BINARY = ?'
+          ).bind('deleted_user', username).run();
+
+          await db.prepare('DELETE FROM user_features WHERE username COLLATE BINARY = ?')
+            .bind(username)
+            .run();
+
+          await db.prepare('DELETE FROM feature_codes WHERE used_by COLLATE BINARY = ?')
+            .bind(username)
+            .run();
+
+          await db.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();
+
+          return resp({ ok: true }, headers);
+        }
+
+        if (action === 'adminStats') {
+          const start = Number(body.start || 0);
+          const end = Number(body.end || 0);
+
+          const totalUsers = await db.prepare('SELECT COUNT(*) AS n FROM users').first();
+          const disabledUsers = await db.prepare('SELECT COUNT(*) AS n FROM users WHERE disabled = 1').first();
+          const totalCodes = await db.prepare('SELECT COUNT(*) AS n FROM activation_codes').first();
+          const usedCodes = await db.prepare('SELECT COUNT(*) AS n FROM activation_codes WHERE used = 1').first();
+          const unusedCodes = await db.prepare('SELECT COUNT(*) AS n FROM activation_codes WHERE used = 0 OR used IS NULL').first();
+
+          let todayRegistered = { n: 0 };
+          let todayUsed = { n: 0 };
+
+          if (start && end) {
+            todayRegistered = await db.prepare('SELECT COUNT(*) AS n FROM users WHERE CAST(created_at AS INTEGER) >= ? AND CAST(created_at AS INTEGER) < ?')
+              .bind(start, end)
+              .first();
+
+            todayUsed = await db.prepare('SELECT COUNT(*) AS n FROM activation_codes WHERE CAST(used_at AS INTEGER) >= ? AND CAST(used_at AS INTEGER) < ?')
+              .bind(start, end)
+              .first();
+          }
+
+          return resp({
+            ok: true,
+            stats: {
+              totalUsers: totalUsers?.n || 0,
+              disabledUsers: disabledUsers?.n || 0,
+              totalCodes: totalCodes?.n || 0,
+              usedCodes: usedCodes?.n || 0,
+              unusedCodes: unusedCodes?.n || 0,
+              todayRegistered: todayRegistered?.n || 0,
+              todayUsed: todayUsed?.n || 0
+            }
+          }, headers);
+        }
+
+        if (action === 'dateReport') {
+          const start = Number(body.start || 0);
+          const end = Number(body.end || 0);
+
+          if (!start || !end || end <= start) {
+            return resp({ ok: false, error: '日期范围无效' }, headers);
+          }
+
+          const registered = await db.prepare(
+            'SELECT u.username, u.qq, u.created_at, u.last_login, u.disabled, ' +
+            'COALESCE(NULLIF(u.registration_code, ""), (' +
+              'SELECT ac.code FROM activation_codes ac ' +
+              'WHERE ac.used_by COLLATE BINARY = u.username COLLATE BINARY ' +
+              'AND ac.used = 1 ' +
+              'ORDER BY CAST(ac.used_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), "") AS registration_code, ' +
+            'COALESCE((' +
+              'SELECT uf.code FROM user_features uf ' +
+              'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+              'WHERE uf.username COLLATE BINARY = u.username COLLATE BINARY ' +
+              'AND uf.feature = "tavern_import" ' +
+              'AND fc.code IS NOT NULL ' +
+              'ORDER BY CAST(uf.unlocked_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), "") AS tavern_import_code, ' +
+            'COALESCE((' +
+              'SELECT CASE WHEN (uf.disabled = 1 OR fc.disabled = 1) THEN 1 ELSE 0 END ' +
+              'FROM user_features uf ' +
+              'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+              'WHERE uf.username COLLATE BINARY = u.username COLLATE BINARY ' +
+              'AND uf.feature = "tavern_import" ' +
+              'ORDER BY CAST(uf.unlocked_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), 0) AS tavern_import_disabled ' +
+            'FROM users u ' +
+            'WHERE CAST(u.created_at AS INTEGER) >= ? AND CAST(u.created_at AS INTEGER) < ? ' +
+            'ORDER BY CAST(u.created_at AS INTEGER) DESC'
+          ).bind(start, end).all();
+
+          const used = await db.prepare(
+            'SELECT ac.code, ac.used_by, u.qq AS used_by_qq, ac.used_at, ' +
+            'COALESCE((' +
+              'SELECT uf.code FROM user_features uf ' +
+              'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+              'WHERE uf.username COLLATE BINARY = ac.used_by COLLATE BINARY ' +
+              'AND uf.feature = "tavern_import" ' +
+              'AND fc.code IS NOT NULL ' +
+              'ORDER BY CAST(uf.unlocked_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), "") AS tavern_import_code, ' +
+            'COALESCE((' +
+              'SELECT CASE WHEN (uf.disabled = 1 OR fc.disabled = 1) THEN 1 ELSE 0 END ' +
+              'FROM user_features uf ' +
+              'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+              'WHERE uf.username COLLATE BINARY = ac.used_by COLLATE BINARY ' +
+              'AND uf.feature = "tavern_import" ' +
+              'ORDER BY CAST(uf.unlocked_at AS INTEGER) DESC ' +
+              'LIMIT 1' +
+            '), 0) AS tavern_import_disabled ' +
+            'FROM activation_codes ac ' +
+            'LEFT JOIN users u ON u.username COLLATE BINARY = ac.used_by COLLATE BINARY ' +
+            'WHERE CAST(ac.used_at AS INTEGER) >= ? AND CAST(ac.used_at AS INTEGER) < ? ' +
+            'ORDER BY CAST(ac.used_at AS INTEGER) DESC'
+          ).bind(start, end).all();
+
+          return resp({
+            ok: true,
+            registeredUsers: registered.results || [],
+            usedCodes: used.results || []
+          }, headers);
+        }
+
+        return resp({ ok: false, error: '未知操作' }, headers);
+      }
+
+      return new Response(JSON.stringify({ ok: false, error: 'Not found' }), { status: 404, headers });
+    } catch (e) {
+      return new Response(JSON.stringify({ ok: false, error: '服务器错误：' + e.message }), { status: 500, headers });
+    }
+  }
+};
+
+async function handleCheckFeature(db, body, headers) {
+  await ensureAdminSchema(db);
+
+  const checked = await getAuthedUserByToken(db, body);
+
+  if (!checked.ok) {
+    return resp({ ok:false, error:checked.error || '登录已失效' }, headers);
+  }
+
+  const feature = String(body.feature || '').trim() || 'tavern_import';
+  const username = normalizeUsername(body.username);
+
+  const row = await db.prepare(
+    'SELECT uf.code, uf.disabled, fc.code AS feature_code_exists, fc.disabled AS code_disabled ' +
+    'FROM user_features uf ' +
+    'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+    'WHERE uf.username COLLATE BINARY = ? AND uf.feature = ? ' +
+    'LIMIT 1'
+  ).bind(username, feature).first();
+
+  const unlocked = !!(
+    row &&
+    row.feature_code_exists &&
+    !Number(row.disabled || 0) &&
+    !Number(row.code_disabled || 0)
+  );
+
+  return resp({
+    ok:true,
+    feature,
+    unlocked,
+    code: unlocked ? (row.code || '') : ''
+  }, headers);
+}
+
+async function handleRedeemFeatureCode(db, body, headers) {
+  await ensureAdminSchema(db);
+
+  const checked = await getAuthedUserByToken(db, body);
+
+  if (!checked.ok) {
+    return resp({ ok:false, error:checked.error || '登录已失效' }, headers);
+  }
+
+  const username = normalizeUsername(body.username);
+  const feature = String(body.feature || '').trim() || 'tavern_import';
+  const code = String(body.code || '').trim().toUpperCase();
+
+  if (!code) {
+    return resp({ ok:false, error:'请输入功能激活码' }, headers);
+  }
+
+  const existedFeature = await db.prepare(
+    'SELECT uf.code, uf.disabled, fc.code AS feature_code_exists, fc.disabled AS code_disabled ' +
+    'FROM user_features uf ' +
+    'LEFT JOIN feature_codes fc ON fc.code = uf.code ' +
+    'WHERE uf.username COLLATE BINARY = ? AND uf.feature = ? LIMIT 1'
+  ).bind(username, feature).first();
+
+  if (
+    existedFeature &&
+    existedFeature.feature_code_exists &&
+    !Number(existedFeature.disabled || 0) &&
+    !Number(existedFeature.code_disabled || 0)
+  ) {
+    return resp({
+      ok:true,
+      unlocked:true,
+      code:existedFeature.code || '',
+      message:'该功能已开启'
+    }, headers);
+  }
+
+  const codeRow = await db.prepare(
+    'SELECT id, code, feature, used, used_by, disabled FROM feature_codes WHERE code = ? LIMIT 1'
+  ).bind(code).first();
+
+  if (!codeRow) {
+    return resp({ ok:false, error:'功能激活码无效' }, headers);
+  }
+
+  if (String(codeRow.feature || '') !== feature) {
+    return resp({ ok:false, error:'这个激活码不适用于当前功能' }, headers);
+  }
+
+  if (Number(codeRow.disabled || 0)) {
+    return resp({ ok:false, error:'这个功能激活码已停用' }, headers);
+  }
+
+  if (Number(codeRow.used || 0)) {
+    return resp({ ok:false, error:'这个功能激活码已被使用' }, headers);
+  }
+
+  const now = Date.now();
+
+  const updateRes = await db.prepare(
+    'UPDATE feature_codes SET used = 1, used_by = ?, used_at = ? WHERE id = ? AND (used = 0 OR used IS NULL)'
+  ).bind(username, now, codeRow.id).run();
+
+  if (!updateRes || !updateRes.meta || updateRes.meta.changes < 1) {
+    return resp({ ok:false, error:'这个功能激活码已被使用' }, headers);
+  }
+
+  await db.prepare(
+    'INSERT OR REPLACE INTO user_features (username, feature, code, unlocked_at, disabled) VALUES (?, ?, ?, ?, 0)'
+  ).bind(username, feature, code, now).run();
+
+  return resp({
+    ok:true,
+    unlocked:true,
+    code,
+    message:'酒馆卡导入功能已开启'
+  }, headers);
+}
+
+async function handleRegister(db, body, headers) {
+  let { username, password, code } = body;
+  const qq = normalizeQQ(body.qq);
+
+  username = normalizeUsername(username);
+  password = String(password || '');
+  code = String(code || '').trim().toUpperCase();
+
+  if (!username || !password || !qq || !code) return resp({ ok: false, error: '参数不完整' }, headers);
+
+  // 确保必要字段存在。
+  // 不影响正常登录，只是避免旧库缺 used_at / disabled 字段时注册或后台统计报错。
+  await ensureAdminSchema(db);
+
+  if (!isValidUsername(username)) {
+    return resp({ ok: false, error: '用户名需6-20位，只能使用英文字母和数字，区分大小写' }, headers);
+  }
+
+  if (!isValidQQ(qq)) {
+    return resp({ ok: false, error: '请输入正确的QQ号' }, headers);
+  }
+
+  if (!isValidPassword(password)) {
+    return resp({ ok: false, error: '密码需10-18位，且至少包含英文和数字，不能包含空格' }, headers);
+  }
+
+  if (password === username) {
+    return resp({ ok: false, error: '密码不能和用户名完全相同' }, headers);
+  }
+
+  const codeRow = await db.prepare('SELECT id, used FROM activation_codes WHERE code = ?').bind(code).first();
+  if (!codeRow) return resp({ ok: false, error: '激活码无效' }, headers);
+  if (codeRow.used) return resp({ ok: false, error: '激活码已被使用' }, headers);
+
+  // 用户名大小写敏感：Skkd221 和 skkd221 是两个不同账号。
+  const existing = await db.prepare('SELECT id FROM users WHERE username COLLATE BINARY = ?').bind(username).first();
+  if (existing) return resp({ ok: false, error: '用户名已被使用' }, headers);
+
+  const now = Date.now();
+  const salt = crypto.randomUUID();
+  const hash = await hashPassword(password, salt);
+  const token = crypto.randomUUID() + '-' + crypto.randomUUID();
+  const deviceId = normalizeDeviceId(body.deviceId);
+  const deviceInfo = normalizeDeviceInfo(body.deviceInfo);
+
+  if (!deviceId) {
+    return resp({ ok: false, error: '设备标识异常，请刷新页面后重试' }, headers);
+  }
+
+  const tokens = JSON.stringify([{ token, time: now, deviceId, deviceInfo }]);
+
+  try {
+    await db.prepare('INSERT INTO users (username, qq, password_hash, salt, tokens, created_at, registration_code) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(username, qq, hash, salt, tokens, now, code)
+      .run();
+  } catch(e) {
+    return resp({ ok: false, error: '用户名已被使用' }, headers);
+  }
+
+  await db.prepare('UPDATE activation_codes SET used = 1, used_by = ?, used_at = ? WHERE id = ?').bind(username, Date.now(), codeRow.id).run();
+
+  return resp({ ok: true, token }, headers);
+}
+
+async function handleLogin(db, body, headers) {
+  let { username, password } = body;
+
+  username = normalizeUsername(username);
+  password = String(password || '');
+
+  if (!username || !password) return resp({ ok: false, error: '参数不完整' }, headers);
+
+  if (!isValidUsername(username)) {
+    return resp({ ok: false, error: '用户名格式不正确' }, headers);
+  }
+
+  // 登录同样大小写敏感。
+  const user = await db.prepare('SELECT * FROM users WHERE username COLLATE BINARY = ?').bind(username).first();
+  if (!user) return resp({ ok: false, error: '用户名或密码错误' }, headers);
+
+  if (Number(user.disabled || 0)) {
+    return resp({ ok: false, error: '账号已被禁用，请联系管理员' }, headers);
+  }
+
+  const hash = await hashPassword(password, user.salt);
+  if (hash !== user.password_hash) return resp({ ok: false, error: '用户名或密码错误' }, headers);
+
+  const MAX_DEVICES = 3;
+  const now = Date.now();
+  const newToken = crypto.randomUUID() + '-' + crypto.randomUUID();
+  const deviceId = normalizeDeviceId(body.deviceId);
+  const deviceInfo = normalizeDeviceInfo(body.deviceInfo);
+
+  if (!deviceId) {
+    return resp({ ok: false, error: '设备标识异常，请刷新页面后重试' }, headers);
+  }
+
+  let tokenList = normalizeTokenList(user.tokens, now);
+
+  // 判断当前浏览器是否已经在设备列表里。
+  // deviceId 相同 = 同一个浏览器 / 同一个PWA存储环境重新登录，不算新设备。
+  const existingDevice = tokenList.find(t => t.deviceId && t.deviceId === deviceId);
+  const isNewDevice = !existingDevice;
+
+  // 严格三设备限制：
+  // 新设备登录时，如果已经有3个设备，就拒绝登录，不自动踢旧设备。
+  if (isNewDevice && tokenList.length >= MAX_DEVICES) {
+    return resp({
+      ok: false,
+      deviceLimit: true,
+      error: '已达到3台设备上限，请先在已登录设备的「设置 → 登录设备」里解绑一个设备后再登录',
+      devices: buildPublicDeviceList(tokenList, deviceId)
+    }, headers);
+  }
+
+  // 同一个浏览器重新登录时，替换旧 token，不重复占设备名额。
+  tokenList = tokenList.filter(t => t.deviceId !== deviceId);
+
+  // 新 deviceId 视为一个新浏览器/新设备。
+  // 同一台机子上的不同浏览器会有不同 deviceId，也会分别占用设备名额。
+  tokenList.push({ token: newToken, time: now, deviceId, deviceInfo });
+
+  // 只排序，不再自动踢设备。
+  tokenList.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+  await db.prepare('UPDATE users SET tokens = ?, last_login = ? WHERE id = ?')
+    .bind(JSON.stringify(tokenList), now, user.id)
+    .run();
+
+  return resp({ ok: true, token: newToken }, headers);
+}
+
+function normalizeTokenList(rawTokens, fallbackNow) {
+  const now = Number(fallbackNow) || Date.now();
+  let tokenList = [];
+
+  try {
+    tokenList = JSON.parse(rawTokens || '[]');
+  } catch(e) {
+    // 兼容更旧的数据：tokens 可能就是一段纯 token 字符串，不是 JSON。
+    tokenList = rawTokens ? [{ token: String(rawTokens), time: now }] : [];
+  }
+
+  // 兼容旧数据：以前 tokens 可能是 JSON 字符串，而不是数组。
+  if (!Array.isArray(tokenList)) {
+    const legacyToken = typeof tokenList === 'string'
+      ? tokenList
+      : (rawTokens ? String(rawTokens) : '');
+
+    tokenList = legacyToken ? [{ token: legacyToken, time: now }] : [];
+  }
+
+  const normalized = tokenList.filter(t => {
+    return t && typeof t.token === 'string' && t.token.length > 10;
+  }).map(t => {
+    const token = String(t.token);
+    const fallbackDeviceId = 'legacy_' + token.replace(/[^a-zA-Z0-9_\-:.]/g, '_').slice(0, 32);
+
+    return {
+      token,
+      time: Number(t.time) || now,
+      deviceId: t.deviceId ? normalizeDeviceId(t.deviceId) : fallbackDeviceId,
+      deviceInfo: normalizeDeviceInfo(t.deviceInfo || {})
+    };
+  }).filter(t => t.deviceId);
+
+  // 同一个 deviceId 只保留最新 token，避免历史重复 token 多占设备名额。
+  const byDeviceId = new Map();
+
+  normalized.forEach(t => {
+    const old = byDeviceId.get(t.deviceId);
+
+    if (!old || (Number(t.time) || 0) >= (Number(old.time) || 0)) {
+      byDeviceId.set(t.deviceId, t);
+    }
+  });
+
+  return Array.from(byDeviceId.values());
+}
+
+function buildPublicDeviceList(tokenList, currentDeviceId, currentToken) {
+  if (!Array.isArray(tokenList)) tokenList = [];
+
+  currentDeviceId = normalizeDeviceId(currentDeviceId || '');
+  currentToken = String(currentToken || '').trim();
+
+  return tokenList.map(t => {
+    const deviceId = t && t.deviceId ? normalizeDeviceId(t.deviceId) : '';
+    const token = t && t.token ? String(t.token) : '';
+
+    return {
+      deviceId,
+      time: t && t.time ? Number(t.time) : 0,
+      current: !!(
+        (deviceId && currentDeviceId && deviceId === currentDeviceId) ||
+        (token && currentToken && token === currentToken)
+      ),
+      deviceInfo: normalizeDeviceInfo(t && t.deviceInfo ? t.deviceInfo : {})
+    };
+  }).filter(d => d.deviceId);
+}
+
+async function getUserByPassword(db, username, password) {
+  username = normalizeUsername(username);
+  password = String(password || '');
+
+  if (!username || !password) return { ok: false, error: '参数不完整' };
+
+  if (!isValidUsername(username)) {
+    return { ok: false, error: '用户名格式不正确' };
+  }
+
+  const user = await db.prepare('SELECT * FROM users WHERE username COLLATE BINARY = ?')
+    .bind(username)
+    .first();
+
+  if (!user) return { ok: false, error: '用户名或密码错误' };
+
+  if (Number(user.disabled || 0)) {
+    return { ok: false, error: '账号已被禁用，请联系管理员' };
+  }
+
+  const hash = await hashPassword(password, user.salt);
+
+  if (hash !== user.password_hash) {
+    return { ok: false, error: '用户名或密码错误' };
+  }
+
+  return { ok: true, user };
+}
+
+async function handleListDevices(db, body, headers) {
+  await ensureAdminSchema(db);
+
+  const username = normalizeUsername(body.username);
+  const password = String(body.password || '');
+  const currentDeviceId = normalizeDeviceId(body.deviceId || '');
+  const currentToken = String(body.token || '').trim();
+
+  const checked = await getUserByPassword(db, username, password);
+
+  if (!checked.ok) {
+    return resp({ ok: false, error: checked.error || '验证失败' }, headers);
+  }
+
+  let tokenList = normalizeTokenList(checked.user.tokens, Date.now());
+
+  tokenList.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+  return resp({
+    ok: true,
+    maxDevices: 3,
+    devices: buildPublicDeviceList(tokenList, currentDeviceId, currentToken)
+  }, headers);
+}
+
+async function handleUnbindDevice(db, body, headers) {
+  await ensureAdminSchema(db);
+
+  const username = normalizeUsername(body.username);
+  const password = String(body.password || '');
+  const targetDeviceId = normalizeDeviceId(body.targetDeviceId || '');
+
+  if (!targetDeviceId) {
+    return resp({ ok: false, error: '缺少要解绑的设备' }, headers);
+  }
+
+  const checked = await getUserByPassword(db, username, password);
+
+  if (!checked.ok) {
+    return resp({ ok: false, error: checked.error || '验证失败' }, headers);
+  }
+
+  let tokenList = normalizeTokenList(checked.user.tokens, Date.now());
+  const before = tokenList.length;
+
+  tokenList = tokenList.filter(t => {
+    const did = t && t.deviceId ? normalizeDeviceId(t.deviceId) : '';
+    return did !== targetDeviceId;
+  });
+
+  if (before === tokenList.length) {
+    return resp({ ok: false, error: '未找到该设备，可能已经解绑' }, headers);
+  }
+
+  await db.prepare('UPDATE users SET tokens = ? WHERE id = ?')
+    .bind(JSON.stringify(tokenList), checked.user.id)
+    .run();
+
+  return resp({
+    ok: true,
+    removed: before - tokenList.length,
+    devices: buildPublicDeviceList(tokenList, body.deviceId || '', body.token || '')
+  }, headers);
+}
+
+async function handleChangePassword(db, body, headers) {
+  await ensureAdminSchema(db);
+
+  const username = normalizeUsername(body.username);
+  const oldPassword = String(body.oldPassword || '');
+  const newPassword = String(body.newPassword || '');
+  const currentToken = String(body.token || '').trim();
+  const deviceId = normalizeDeviceId(body.deviceId || '');
+  const deviceInfo = normalizeDeviceInfo(body.deviceInfo || {});
+  const now = Date.now();
+
+  if (!username || !oldPassword || !newPassword) {
+    return resp({ ok: false, error: '参数不完整' }, headers);
+  }
+
+  if (!currentToken) {
+    return resp({ ok: false, error: '当前登录已失效，请重新登录后再修改密码' }, headers);
+  }
+
+  if (!deviceId) {
+    return resp({ ok: false, error: '设备标识异常，请刷新页面后重试' }, headers);
+  }
+
+  if (!isValidUsername(username)) {
+    return resp({ ok: false, error: '用户名格式不正确' }, headers);
+  }
+
+  if (!isValidPassword(newPassword)) {
+    return resp({ ok: false, error: '新密码需10-18位，且至少包含英文和数字，不能包含空格' }, headers);
+  }
+
+  if (newPassword === username) {
+    return resp({ ok: false, error: '新密码不能和用户名完全相同' }, headers);
+  }
+
+  if (newPassword === oldPassword) {
+    return resp({ ok: false, error: '新密码不能和旧密码相同' }, headers);
+  }
+
+  const checked = await getUserByPassword(db, username, oldPassword);
+
+  if (!checked.ok) {
+    return resp({ ok: false, error: checked.error || '旧密码错误' }, headers);
+  }
+
+  const oldTokenList = normalizeTokenList(checked.user.tokens, now);
+
+  if (!oldTokenList.some(t => t && t.token === currentToken)) {
+    return resp({ ok: false, error: '当前登录已失效，请重新登录后再修改密码' }, headers);
+  }
+
+  const salt = crypto.randomUUID();
+  const hash = await hashPassword(newPassword, salt);
+  const newToken = crypto.randomUUID() + '-' + crypto.randomUUID();
+
+  const tokenList = [{
+    token: newToken,
+    time: now,
+    deviceId,
+    deviceInfo
+  }];
+
+  await db.prepare('UPDATE users SET password_hash = ?, salt = ?, tokens = ?, last_login = ? WHERE id = ?')
+    .bind(hash, salt, JSON.stringify(tokenList), now, checked.user.id)
+    .run();
+
+  return resp({
+    ok: true,
+    token: newToken,
+    message: '密码已修改，其他设备已退出登录'
+  }, headers);
+}
+
+async function getAuthedUserByToken(db, body) {
+  const username = normalizeUsername(body.username);
+  const token = String(body.token || '').trim();
+
+  if (!username || !token) {
+    return { ok:false, error:'登录已失效，请重新登录' };
+  }
+
+  const user = await db.prepare('SELECT * FROM users WHERE username COLLATE BINARY = ?')
+    .bind(username)
+    .first();
+
+  if (!user) {
+    return { ok:false, error:'用户不存在，请重新登录' };
+  }
+
+  if (Number(user.disabled || 0)) {
+    return { ok:false, error:'账号已被禁用，请联系管理员' };
+  }
+
+  const list = normalizeTokenList(user.tokens, Date.now());
+
+  if (!list.some(t => t && t.token === token)) {
+    return { ok:false, error:'登录已失效，请重新登录' };
+  }
+
+  return { ok:true, user };
+}
+
+async function handleVerify(db, body, headers) {
+  const token = String(body.token || '').trim();
+  const username = normalizeUsername(body.username);
+
+  if (!token) return resp({ ok: false }, headers);
+
+  // 新版前端会同时传 username。
+  // 这样后端只查当前用户，不再全表扫描。
+  if (username) {
+    const user = await db.prepare('SELECT * FROM users WHERE username COLLATE BINARY = ?')
+      .bind(username)
+      .first();
+
+    if (!user) return resp({ ok: false }, headers);
+
+    if (Number(user.disabled || 0)) {
+      return resp({ ok: false }, headers);
+    }
+
+    const list = normalizeTokenList(user.tokens, Date.now());
+
+    if (list.some(t => t && t.token === token)) {
+      return resp({ ok: true }, headers);
+    }
+
+    return resp({ ok: false }, headers);
+  }
+
+  // 兼容旧前端：没有 username 时才走旧逻辑。
+  // 旧逻辑保留一段时间，避免旧缓存页面无法验证。
+  const rows = await db.prepare('SELECT * FROM users').all();
+  const results = rows.results || [];
+
+  for (const row of results) {
+    if (Number(row.disabled || 0)) continue;
+
+    const list = normalizeTokenList(row.tokens, Date.now());
+
+    if (list.some(t => t && t.token === token)) {
+      return resp({ ok: true }, headers);
+    }
+  }
+
+  return resp({ ok: false }, headers);
+}
+
+async function ensureAdminSchema(db) {
+  // 自动建表：
+  // 如果绑定的是一个全新的 D1 数据库，Worker 会自动创建基础表。
+  // 如果表已经存在，不会清空数据，也不会覆盖已有表。
+  try {
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS users (' +
+      'id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      'username TEXT NOT NULL UNIQUE,' +
+      'qq TEXT DEFAULT "",' +
+      'password_hash TEXT NOT NULL,' +
+      'salt TEXT NOT NULL,' +
+      'tokens TEXT DEFAULT "[]",' +
+      'created_at INTEGER DEFAULT 0,' +
+      'last_login INTEGER DEFAULT 0,' +
+      'disabled INTEGER DEFAULT 0,' +
+      'registration_code TEXT DEFAULT ""' +
+      ')'
+    ).run();
+
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS activation_codes (' +
+      'id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      'code TEXT NOT NULL UNIQUE,' +
+      'used INTEGER DEFAULT 0,' +
+      'used_by TEXT DEFAULT "",' +
+      'created_at INTEGER DEFAULT 0,' +
+      'used_at INTEGER DEFAULT 0' +
+      ')'
+    ).run();
+
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS activation_code_history (' +
+      'code TEXT PRIMARY KEY,' +
+      'created_at INTEGER DEFAULT 0,' +
+      'source TEXT DEFAULT ""' +
+      ')'
+    ).run();
+
+    await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)').run();
+
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS feature_codes (' +
+      'id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      'code TEXT NOT NULL UNIQUE,' +
+      'feature TEXT NOT NULL DEFAULT "",' +
+      'used INTEGER DEFAULT 0,' +
+      'used_by TEXT DEFAULT "",' +
+      'created_at INTEGER DEFAULT 0,' +
+      'used_at INTEGER DEFAULT 0,' +
+      'disabled INTEGER DEFAULT 0' +
+      ')'
+    ).run();
+
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS feature_code_history (' +
+      'code TEXT PRIMARY KEY,' +
+      'feature TEXT DEFAULT "",' +
+      'created_at INTEGER DEFAULT 0,' +
+      'source TEXT DEFAULT ""' +
+      ')'
+    ).run();
+
+    await db.prepare(
+      'CREATE TABLE IF NOT EXISTS user_features (' +
+      'id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      'username TEXT NOT NULL,' +
+      'feature TEXT NOT NULL,' +
+      'code TEXT DEFAULT "",' +
+      'unlocked_at INTEGER DEFAULT 0,' +
+      'disabled INTEGER DEFAULT 0,' +
+      'UNIQUE(username, feature)' +
+      ')'
+    ).run();
+
+    await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_codes_code ON feature_codes(code)').run();
+    await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_features_user_feature ON user_features(username, feature)').run();
+
+    await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_activation_codes_code ON activation_codes(code)').run();
+  } catch(e) {
+    // 自动建表失败时不在这里直接中断，后续具体 SQL 会返回更明确错误。
+  }
+
+  // 自动补 users 字段。
+  // 旧数据库如果没有 qq / disabled 等字段，会在这里补上。
+  try {
+    const userInfo = await db.prepare('PRAGMA table_info(users)').all();
+    const userCols = (userInfo.results || []).map(c => c.name);
+
+    if (!userCols.includes('qq')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN qq TEXT DEFAULT ""').run();
+    }
+
+    if (!userCols.includes('disabled')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN disabled INTEGER DEFAULT 0').run();
+    }
+
+    if (!userCols.includes('last_login')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN last_login INTEGER DEFAULT 0').run();
+    }
+
+    if (!userCols.includes('created_at')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN created_at INTEGER DEFAULT 0').run();
+    }
+
+    if (!userCols.includes('tokens')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN tokens TEXT DEFAULT "[]"').run();
+    }
+
+    if (!userCols.includes('registration_code')) {
+      await db.prepare('ALTER TABLE users ADD COLUMN registration_code TEXT DEFAULT ""').run();
+    }
+
+    // 老用户保底回填：
+    // 如果 users.registration_code 为空，并且 activation_codes 里还能找到 used_by 对应的注册激活码，
+    // 就把它补回 users 表。已经被删除且没有任何记录的旧码无法恢复，会显示未记录。
+    await db.prepare(
+      'UPDATE users ' +
+      'SET registration_code = COALESCE((' +
+        'SELECT ac.code FROM activation_codes ac ' +
+        'WHERE ac.used_by COLLATE BINARY = users.username COLLATE BINARY ' +
+        'AND ac.used = 1 ' +
+        'ORDER BY CAST(ac.used_at AS INTEGER) DESC ' +
+        'LIMIT 1' +
+      '), registration_code) ' +
+      'WHERE registration_code IS NULL OR registration_code = ""'
+    ).run();
+  } catch(e) {}
+
+  // 自动补 activation_codes 字段。
+  try {
+    const codeInfo = await db.prepare('PRAGMA table_info(activation_codes)').all();
+    const codeCols = (codeInfo.results || []).map(c => c.name);
+
+    if (!codeCols.includes('used')) {
+      await db.prepare('ALTER TABLE activation_codes ADD COLUMN used INTEGER DEFAULT 0').run();
+    }
+
+    if (!codeCols.includes('used_by')) {
+      await db.prepare('ALTER TABLE activation_codes ADD COLUMN used_by TEXT DEFAULT ""').run();
+    }
+
+    if (!codeCols.includes('created_at')) {
+      await db.prepare('ALTER TABLE activation_codes ADD COLUMN created_at INTEGER DEFAULT 0').run();
+    }
+
+    if (!codeCols.includes('used_at')) {
+      await db.prepare('ALTER TABLE activation_codes ADD COLUMN used_at INTEGER DEFAULT 0').run();
+    }
+
+    await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_activation_codes_code ON activation_codes(code)').run();
+  } catch(e) {}
+
+  // 自动补 activation_code_history 字段。
+  try {
+    const historyInfo = await db.prepare('PRAGMA table_info(activation_code_history)').all();
+    const historyCols = (historyInfo.results || []).map(c => c.name);
+
+    if (!historyCols.includes('created_at')) {
+      await db.prepare('ALTER TABLE activation_code_history ADD COLUMN created_at INTEGER DEFAULT 0').run();
+    }
+
+    if (!historyCols.includes('source')) {
+      await db.prepare('ALTER TABLE activation_code_history ADD COLUMN source TEXT DEFAULT ""').run();
+    }
+  } catch(e) {}
+
+  // 自动补 feature_codes 字段。
+  try {
+    const featureCodeInfo = await db.prepare('PRAGMA table_info(feature_codes)').all();
+    const featureCodeCols = (featureCodeInfo.results || []).map(c => c.name);
+
+    if (!featureCodeCols.includes('feature')) {
+      await db.prepare('ALTER TABLE feature_codes ADD COLUMN feature TEXT NOT NULL DEFAULT ""').run();
+    }
+
+    if (!featureCodeCols.includes('used')) {
+      await db.prepare('ALTER TABLE feature_codes ADD COLUMN used INTEGER DEFAULT 0').run();
+    }
+
+    if (!featureCodeCols.includes('used_by')) {
+      await db.prepare('ALTER TABLE feature_codes ADD COLUMN used_by TEXT DEFAULT ""').run();
+    }
+
+    if (!featureCodeCols.includes('created_at')) {
+      await db.prepare('ALTER TABLE feature_codes ADD COLUMN created_at INTEGER DEFAULT 0').run();
+    }
+
+    if (!featureCodeCols.includes('used_at')) {
+      await db.prepare('ALTER TABLE feature_codes ADD COLUMN used_at INTEGER DEFAULT 0').run();
+    }
+
+    if (!featureCodeCols.includes('disabled')) {
+      await db.prepare('ALTER TABLE feature_codes ADD COLUMN disabled INTEGER DEFAULT 0').run();
+    }
+
+    await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_codes_code ON feature_codes(code)').run();
+  } catch(e) {}
+
+  // 自动补 feature_code_history 字段。
+  try {
+    const featureHistoryInfo = await db.prepare('PRAGMA table_info(feature_code_history)').all();
+    const featureHistoryCols = (featureHistoryInfo.results || []).map(c => c.name);
+
+    if (!featureHistoryCols.includes('feature')) {
+      await db.prepare('ALTER TABLE feature_code_history ADD COLUMN feature TEXT DEFAULT ""').run();
+    }
+
+    if (!featureHistoryCols.includes('created_at')) {
+      await db.prepare('ALTER TABLE feature_code_history ADD COLUMN created_at INTEGER DEFAULT 0').run();
+    }
+
+    if (!featureHistoryCols.includes('source')) {
+      await db.prepare('ALTER TABLE feature_code_history ADD COLUMN source TEXT DEFAULT ""').run();
+    }
+  } catch(e) {}
+
+  // 自动补 user_features 字段。
+  try {
+    const userFeatureInfo = await db.prepare('PRAGMA table_info(user_features)').all();
+    const userFeatureCols = (userFeatureInfo.results || []).map(c => c.name);
+
+    if (!userFeatureCols.includes('username')) {
+      await db.prepare('ALTER TABLE user_features ADD COLUMN username TEXT DEFAULT ""').run();
+    }
+
+    if (!userFeatureCols.includes('feature')) {
+      await db.prepare('ALTER TABLE user_features ADD COLUMN feature TEXT DEFAULT ""').run();
+    }
+
+    if (!userFeatureCols.includes('code')) {
+      await db.prepare('ALTER TABLE user_features ADD COLUMN code TEXT DEFAULT ""').run();
+    }
+
+    if (!userFeatureCols.includes('unlocked_at')) {
+      await db.prepare('ALTER TABLE user_features ADD COLUMN unlocked_at INTEGER DEFAULT 0').run();
+    }
+
+    if (!userFeatureCols.includes('disabled')) {
+      await db.prepare('ALTER TABLE user_features ADD COLUMN disabled INTEGER DEFAULT 0').run();
+    }
+
+    await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_user_features_user_feature ON user_features(username, feature)').run();
+  } catch(e) {}
+
+  // 把当前 activation_codes 表里的码补进历史表，防止以后删除后又随机生成同一个码。
+  try {
+    await db.prepare(
+      'INSERT OR IGNORE INTO activation_code_history (code, created_at, source) SELECT code, created_at, ? FROM activation_codes WHERE code IS NOT NULL AND code != ?'
+    ).bind('existing', '').run();
+  } catch(e) {}
+
+  // 把当前 feature_codes 表里的码补进历史表，防止以后删除后又随机生成同一个码。
+  try {
+    await db.prepare(
+      'INSERT OR IGNORE INTO feature_code_history (code, feature, created_at, source) SELECT code, feature, created_at, ? FROM feature_codes WHERE code IS NOT NULL AND code != ?'
+    ).bind('existing', '').run();
+  } catch(e) {}
+}
+
+function _adminB64UrlEncodeText(s) {
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function _adminB64UrlDecodeText(s) {
+  s = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return atob(s);
+}
+
+async function _adminSign(secret, text) {
+  const enc = new TextEncoder();
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(String(secret || '')),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(text));
+
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(sig)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+async function createAdminToken(secret) {
+  // 管理后台持久化登录：
+  // token 不再内置 12 小时过期时间。
+  // 只要浏览器 localStorage 里保留 token，且 ADMIN_PWD 没变，就保持有效。
+  // 如果需要强制所有管理端重新登录，修改 Cloudflare 环境变量 ADMIN_PWD 即可。
+  const nonce = crypto.randomUUID();
+  const payload = 'perm.' + nonce + '.' + Date.now();
+  const payload64 = _adminB64UrlEncodeText(payload);
+  const sig = await _adminSign(secret, payload64);
+
+  return 'admin_' + payload64 + '.' + sig;
+}
+
+async function verifyAdminToken(token, secret) {
+  token = String(token || '');
+
+  if (!token.startsWith('admin_')) return false;
+
+  const raw = token.slice(6);
+  const parts = raw.split('.');
+
+  if (parts.length !== 2) return false;
+
+  const payload64 = parts[0];
+  const sig = parts[1];
+  const expected = await _adminSign(secret, payload64);
+
+  if (sig !== expected) return false;
+
+  try {
+    const payload = _adminB64UrlDecodeText(payload64);
+
+    // 新版永久管理 token：
+    // payload 格式：perm.nonce.createdAt
+    // 只要签名正确，且 ADMIN_PWD 没变，就一直有效。
+    if (!payload || payload.indexOf('perm.') !== 0) return false;
+  } catch(e) {
+    return false;
+  }
+
+  return true;
+}
+
+function normalizeUsername(v) {
+  return String(v || '').trim();
+}
+
+function normalizeQQ(v) {
+  return String(v || '').trim().replace(/[^\d]/g, '').slice(0, 12);
+}
+
+function isValidUsername(v) {
+  return /^[A-Za-z0-9]{6,20}$/.test(String(v || ''));
+}
+
+function isValidQQ(v) {
+  return /^[1-9][0-9]{4,11}$/.test(String(v || ''));
+}
+
+function isValidPassword(v) {
+  v = String(v || '');
+
+  if (v.length < 10 || v.length > 18) return false;
+  if (/\s/.test(v)) return false;
+  if (!/[A-Za-z]/.test(v)) return false;
+  if (!/[0-9]/.test(v)) return false;
+
+  return true;
+}
+
+function normalizeDeviceInfo(info) {
+  if (!info || typeof info !== 'object') info = {};
+
+  // 隐私最小化：
+  // 只保存粗略登录设备信息，不保存完整 userAgent / platform / vendor。
+  return {
+    browser: String(info.browser || '未知浏览器').slice(0, 40),
+    os: String(info.os || '未知系统').slice(0, 40),
+    mode: String(info.mode || '浏览器').slice(0, 40),
+    savedAt: Number(info.savedAt) || Date.now()
+  };
+}
+
+
+function normalizeDeviceId(v) {
+  v = String(v || '').trim();
+
+  if (!v) {
+    return '';
+  }
+
+  return v.slice(0, 80).replace(/[^a-zA-Z0-9_\-:.]/g, '_');
+}
+
+async function hashPassword(password, salt) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + ':' + salt);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function resp(data, headers) {
+  return new Response(JSON.stringify(data), { headers });
+}

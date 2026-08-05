@@ -1,0 +1,26 @@
+{
+  "name": "三天没睡管理控制台",
+  "short_name": "管理控制台",
+  "description": "激活码、用户与登录设备管理后台",
+  "start_url": "./",
+  "scope": "./",
+  "id": "./",
+  "display": "standalone",
+  "background_color": "#f1eff7",
+  "theme_color": "#f1eff7",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "admin-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "admin-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
