@@ -270,7 +270,9 @@ cd /d "你的本地路径/3daysnosleep/web"
 
 然后第二条命令部署：
 
+```bat
 wrangler pages deploy . --project-name my-chat
+```
 
 注意：--project-name 后面的名字必须和第一次部署时用的名字完全一致。
 如果填错了会创建一个新的 Pages 项目，而不是更新原来的。
@@ -287,7 +289,9 @@ cd /d "你的本地路径/3daysnosleep/admin"
 
 然后使用第二条命令部署：
 
+```bat
 wrangler pages deploy . --project-name my-chat-admin
+```
 
 注意：--project-name 后面的名字必须和第一次部署时用的名字完全一致。
 如果填错了会创建一个新的 Pages 项目，而不是更新原来的。
