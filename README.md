@@ -14,17 +14,17 @@ admin - 管理员工具
 
 ## 项目结构
 
-本仓库包含三个文件夹：
+本仓库所有代码文件在 3daysnosleep 文件夹内，包含三个子文件夹：
 
-**worker/** — 后端代码
+**3daysnosleep/worker/** — 后端代码
 - worker.txt：Cloudflare Worker 源码，部署时复制粘贴到 Worker 在线编辑器
 
-**web/** — 前端主站
+**3daysnosleep/web/** — 前端主站
 - index.html、sw.js、manifest.json：主页面文件
 - css/、js/、assets/、presets/：样式、脚本、资源文件
 - functions/api/auth.js：前端反代文件，需要填入你的 Worker 地址
 
-**admin/** — 管理员控制台
+**3daysnosleep/admin/** — 管理员控制台
 - index.html、sw.js、manifest.json：管理页面文件
 - functions/api/admin.js：管理员反代文件，需要填入你的 Worker 地址
 
@@ -190,7 +190,7 @@ wrangler whoami
 1. 在 CMD 里进入 `web` 文件夹：
 
 ```bat
-cd /d "你的本地路径/web"
+cd /d "你的本地路径/3daysnosleep/web"
 ```
 
 2. 确认文件夹结构正确：
@@ -234,7 +234,7 @@ https://my-chat.pages.dev/api/auth
 1. 在 CMD 里进入 `admin` 文件夹：
 
 ```bat
-cd /d "你的本地路径/admin"
+cd /d "你的本地路径/3daysnosleep/admin"
 ```
 
 2. 部署（项目名和主站不同，例如 `my-chat-admin`）：
@@ -264,7 +264,9 @@ wrangler pages deploy . --project-name my-chat-admin
 
 改完 `web` 文件夹里的文件后，使用第一条命令进入文件夹：
 
-cd /d "你的本地路径/web"
+```bat
+cd /d "你的本地路径/3daysnosleep/web"
+```
 
 然后第二条命令部署：
 
@@ -279,7 +281,9 @@ wrangler pages deploy . --project-name my-chat
 
 改完 `admin` 文件夹里的文件后，使用第一条命令进入文件夹：
 
-cd /d "你的本地路径/admin"
+```bat
+cd /d "你的本地路径/3daysnosleep/admin"
+```
 
 然后使用第二条命令部署：
 
