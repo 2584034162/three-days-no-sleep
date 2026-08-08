@@ -1,6 +1,6 @@
 // 替换成你自己的认证 Worker 地址
 // 例如：const AUTH_WORKER_URL = 'https://your-worker.your-account.workers.dev/api/auth';
-const AUTH_WORKER_URL = 'https://my-auth-worker.2584034162.workers.dev/';
+const AUTH_WORKER_URL = 'https://my-auth-worker.2584034162.workers.dev/api/auth';
 
 function jsonHeaders() {
   return {
